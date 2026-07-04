@@ -1,0 +1,316 @@
+{
+  "version": "1.0",
+  "briefEditions": {
+    "am": "06:30",
+    "pm": "16:30",
+    "weekly": "Fri 17:00",
+    "timezone": "America/Chicago"
+  },
+  "sources": {
+    "federal_register": {
+      "enabled": true,
+      "maxItemsPerRun": 40,
+      "agencies": [
+        "environmental-protection-agency",
+        "agriculture-department",
+        "treasury-department",
+        "internal-revenue-service",
+        "commodity-futures-trading-commission",
+        "trade-representative-office-of-united-states"
+      ]
+    },
+    "congress_gov": {
+      "enabled": true,
+      "maxItemsPerRun": 30
+    },
+    "legiscan": {
+      "enabled": true,
+      "maxItemsPerRun": 40,
+      "states": [
+        "IA",
+        "IL",
+        "MN",
+        "NE",
+        "IN",
+        "MO",
+        "WI"
+      ]
+    },
+    "eurlex_oj": {
+      "enabled": true,
+      "maxItemsPerRun": 25
+    },
+    "iowa_admin_rules": {
+      "enabled": true,
+      "maxItemsPerRun": 15
+    },
+    "regulations_gov": {
+      "enabled": true,
+      "maxItemsPerRun": 20
+    },
+    "courtlistener": {
+      "enabled": true,
+      "maxItemsPerRun": 10
+    }
+  },
+  "topics": [
+    {
+      "id": "rfs-rvo",
+      "label": "RFS / Renewable Volume Obligations",
+      "weight": 10,
+      "keywords": [
+        "renewable fuel standard",
+        "RFS",
+        "RVO",
+        "renewable volume obligation",
+        "biomass-based diesel",
+        "small refinery exemption",
+        "RIN"
+      ],
+      "queries": {
+        "federal_register": [
+          "renewable fuel standard",
+          "renewable volume obligations"
+        ],
+        "congress_gov": [
+          "renewable fuel standard"
+        ],
+        "legiscan": [
+          "renewable fuel"
+        ],
+        "eurlex_oj": []
+      }
+    },
+    {
+      "id": "45z-cfpc",
+      "label": "45Z Clean Fuel Production Credit",
+      "weight": 10,
+      "keywords": [
+        "45Z",
+        "clean fuel production credit",
+        "GREET",
+        "carbon intensity",
+        "blenders tax credit",
+        "FD-CIC",
+        "regenerative feedstock"
+      ],
+      "queries": {
+        "federal_register": [
+          "clean fuel production credit",
+          "45Z"
+        ],
+        "congress_gov": [
+          "clean fuel production credit"
+        ],
+        "legiscan": [
+          "biodiesel tax credit"
+        ],
+        "eurlex_oj": []
+      }
+    },
+    {
+      "id": "biodiesel-saf",
+      "label": "Biodiesel / Renewable Diesel / SAF",
+      "weight": 9,
+      "keywords": [
+        "biodiesel",
+        "renewable diesel",
+        "sustainable aviation fuel",
+        "SAF",
+        "soybean oil"
+      ],
+      "queries": {
+        "federal_register": [
+          "biodiesel",
+          "sustainable aviation fuel"
+        ],
+        "congress_gov": [
+          "sustainable aviation fuel",
+          "biodiesel"
+        ],
+        "legiscan": [
+          "biodiesel",
+          "sustainable aviation fuel"
+        ],
+        "eurlex_oj": [
+          "biofuel",
+          "renewable energy directive"
+        ]
+      }
+    },
+    {
+      "id": "farm-bill",
+      "label": "Farm Bill / Federal Farm Policy",
+      "weight": 9,
+      "keywords": [
+        "farm bill",
+        "commodity title",
+        "crop insurance",
+        "conservation title"
+      ],
+      "queries": {
+        "federal_register": [
+          "farm bill"
+        ],
+        "congress_gov": [
+          "farm bill",
+          "agriculture reauthorization"
+        ],
+        "legiscan": [],
+        "eurlex_oj": [
+          "common agricultural policy"
+        ]
+      }
+    },
+    {
+      "id": "crop-protection",
+      "label": "Crop Protection / FIFRA / Pesticides",
+      "weight": 8,
+      "keywords": [
+        "FIFRA",
+        "pesticide",
+        "glyphosate",
+        "dicamba",
+        "preemption",
+        "failure to warn",
+        "registration review"
+      ],
+      "queries": {
+        "federal_register": [
+          "pesticide registration",
+          "FIFRA"
+        ],
+        "congress_gov": [
+          "pesticide"
+        ],
+        "legiscan": [
+          "pesticide",
+          "glyphosate"
+        ],
+        "eurlex_oj": [
+          "plant protection products",
+          "glyphosate"
+        ],
+        "courtlistener": [
+          "glyphosate",
+          "dicamba",
+          "FIFRA preemption"
+        ]
+      }
+    },
+    {
+      "id": "trade-eudr",
+      "label": "Trade / China / EUDR",
+      "weight": 8,
+      "keywords": [
+        "tariff",
+        "soybean export",
+        "USTR",
+        "China trade",
+        "EUDR",
+        "deforestation regulation"
+      ],
+      "queries": {
+        "federal_register": [
+          "section 301",
+          "soybean"
+        ],
+        "congress_gov": [
+          "China trade",
+          "agricultural trade"
+        ],
+        "legiscan": [],
+        "eurlex_oj": [
+          "deforestation",
+          "EUDR"
+        ]
+      }
+    },
+    {
+      "id": "iowa-water-pipelines",
+      "label": "Iowa Water / CO2 Pipelines / Eminent Domain",
+      "weight": 8,
+      "keywords": [
+        "nutrient reduction",
+        "water quality",
+        "eminent domain",
+        "carbon pipeline",
+        "cover crop",
+        "drainage"
+      ],
+      "queries": {
+        "federal_register": [
+          "waters of the United States"
+        ],
+        "congress_gov": [],
+        "legiscan": [
+          "eminent domain pipeline",
+          "water quality",
+          "nutrient"
+        ],
+        "eurlex_oj": [],
+        "courtlistener": [
+          "waters of the United States",
+          "carbon dioxide pipeline"
+        ]
+      }
+    },
+    {
+      "id": "right-to-repair",
+      "label": "Right to Repair / Ag Data",
+      "weight": 7,
+      "keywords": [
+        "right to repair",
+        "equipment repair",
+        "embedded software",
+        "agricultural data"
+      ],
+      "queries": {
+        "federal_register": [
+          "right to repair"
+        ],
+        "congress_gov": [
+          "right to repair"
+        ],
+        "legiscan": [
+          "right to repair",
+          "equipment repair"
+        ],
+        "eurlex_oj": [
+          "right to repair"
+        ]
+      }
+    },
+    {
+      "id": "maha-seed-oils",
+      "label": "MAHA / Seed Oils / Dietary Policy",
+      "weight": 7,
+      "keywords": [
+        "seed oil",
+        "MAHA",
+        "dietary guidelines",
+        "ultra-processed"
+      ],
+      "queries": {
+        "federal_register": [
+          "dietary guidelines"
+        ],
+        "congress_gov": [
+          "dietary guidelines"
+        ],
+        "legiscan": [
+          "seed oil",
+          "food dye"
+        ],
+        "eurlex_oj": []
+      }
+    }
+  ],
+  "output": {
+    "minLocalScoreForTriage": 5,
+    "maxItemsToTriage": 80,
+    "maxItemsInBrief": 25,
+    "teams": true,
+    "email": false
+  }
+}

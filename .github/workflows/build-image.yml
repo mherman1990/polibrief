@@ -1,0 +1,60 @@
+# Builds the polibrief Docker image for the Raspberry Pi (ARM64) and publishes it
+# to GitHub's registry — so updating the Umbrel app never requires building on the
+# Pi again.
+#
+# ONE-TIME SETUP:
+#   1. Create a GitHub repo for the polibrief source code (e.g. mherman1990/polibrief)
+#      and upload this whole project folder to it (minus .env — it's gitignored).
+#   2. That's it. GITHUB_TOKEN is automatic; no secrets to configure.
+#
+# TO SHIP A NEW VERSION:
+#   1. Edit code, upload/commit the changes to the repo.
+#   2. On the repo page: Releases → "Draft a new release" → tag "v1.1.1" → Publish.
+#      (Creating the tag is what triggers this build — takes ~5 minutes.)
+#   3. In your isa-umbrel-apps store repo, edit isa-polibrief/docker-compose.yml
+#      to the new tag and bump version in umbrel-app.yml.
+#   4. Umbrel → re-add the community store → the app shows an Update button.
+#
+# The image is published as: ghcr.io/<your-username>/polibrief:<version>
+# First publish note: check the package's visibility is Public
+# (github.com → your Packages → polibrief → Package settings).
+
+name: Build and publish Docker image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: # also allows manual runs from the Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the version tag
+        id: version
+        run: echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/polibrief:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ github.repository_owner }}/polibrief:latest
