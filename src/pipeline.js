@@ -24,9 +24,61 @@ export function watchlistFilePath() {
   return found;
 }
 
-/** Persist watchlist edits made from the web UI. */
+// --- Focus areas -----------------------------------------------------------
+// The watchlist is organized into FOCUS AREAS (issue buckets the analyst thinks
+// in). Each has a single flat `terms` list used BOTH to search sources and to
+// score/tag items, plus an `appliesTo` list of source ids. The collect/score/
+// triage engine still consumes the older per-topic shape, so we derive that view
+// on load (deriveEngineTopics) and strip it again on save.
+
+/** All known source ids — a focus area with no `appliesTo` applies to all of them. */
+const ALL_SOURCE_IDS = Object.keys(adapters);
+
+/** Convert a legacy "topics" array (keywords + per-source queries) into focus areas. */
+function migrateTopicsToFocusAreas(topics) {
+  return (topics ?? []).map((t) => ({
+    id: t.id,
+    label: t.label,
+    weight: t.weight ?? 5,
+    enabled: t.enabled !== false,
+    terms: [...new Set([...(t.keywords ?? []), ...Object.values(t.queries ?? {}).flat()])],
+    appliesTo: [...ALL_SOURCE_IDS],
+  }));
+}
+
+/**
+ * The engine (collect/score/triage/adapters) consumes a topic shape:
+ *   { id, label, weight, keywords, queries: { [sourceId]: string[] } }
+ * Derive it from focus areas — the flat `terms` list serves as both keywords
+ * (scoring) and per-source queries (collection), for every source it applies to.
+ */
+function deriveEngineTopics(focusAreas) {
+  return (focusAreas ?? [])
+    .filter((fa) => fa.enabled !== false)
+    .map((fa) => {
+      const applies = fa.appliesTo && fa.appliesTo.length ? fa.appliesTo : ALL_SOURCE_IDS;
+      const terms = fa.terms ?? [];
+      const queries = {};
+      for (const sid of applies) queries[sid] = terms;
+      return { id: fa.id, label: fa.label, weight: fa.weight ?? 5, keywords: terms, queries };
+    });
+}
+
+/** Ensure focusAreas exist (migrating legacy topics) and attach the derived engine view. */
+export function normalizeWatchlist(w) {
+  if (!Array.isArray(w.focusAreas) || w.focusAreas.length === 0) {
+    w.focusAreas =
+      Array.isArray(w.topics) && w.topics.length ? migrateTopicsToFocusAreas(w.topics) : w.focusAreas ?? [];
+  }
+  w.topics = deriveEngineTopics(w.focusAreas); // engine view; stripped again on save
+  return w;
+}
+
+/** Persist watchlist edits from the web UI. The derived engine `topics` view is never written. */
 export function saveWatchlist(watchlist) {
-  fs.writeFileSync(watchlistFilePath(), JSON.stringify(watchlist, null, 2) + "\n", "utf8");
+  const { topics, ...persist } = watchlist; // drop the derived engine view before writing
+  void topics;
+  fs.writeFileSync(watchlistFilePath(), JSON.stringify(persist, null, 2) + "\n", "utf8");
 }
 
 export function loadWatchlist() {
@@ -38,13 +90,15 @@ export function loadWatchlist() {
   } catch (err) {
     throw new Error(`Could not read ${watchlistPath}: ${err.message}`);
   }
+  let parsed;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch (err) {
     throw new Error(
       `watchlist.json is not valid JSON: ${err.message}\n   Tip: check for a missing comma or quote, or paste the file into jsonlint.com`
     );
   }
+  return normalizeWatchlist(parsed);
 }
 
 function printScoredTable(kept, dropped) {
@@ -67,7 +121,7 @@ function printScoredTable(kept, dropped) {
 export async function runPipeline({ edition = "am", dryRun = false, source = null, env = process.env }) {
   const watchlist = loadWatchlist();
 
-  console.log(`\n🌱 polibrief ${dryRun ? "(dry run — no Anthropic calls)" : `— ${edition} edition`}\n`);
+  console.log(`\n🌱 The Bean Brief ${dryRun ? "(dry run — no Anthropic calls)" : `— ${edition} edition`}\n`);
 
   // 1. Collect. Dry runs never write state (no last-success advance, no items marked seen).
   const { items, skippedSources, fetchedCount } = await collectAll({

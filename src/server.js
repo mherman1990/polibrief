@@ -139,6 +139,13 @@ function page(title, body) {
     border: 1px solid var(--isa-gold); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: .9em; }
   form.chip button { background: none; color: inherit; padding: 0 6px; font-size: 1em; opacity: .6; }
   form.chip button:hover { opacity: 1; background: none; }
+  form.pill { display: inline-flex; }
+  form.pill button { border-radius: 999px; padding: 3px 11px; font-size: .82em; font-weight: 600;
+    border: 1px solid var(--isa-dark-40); background: transparent; color: var(--isa-dark); }
+  form.pill.on button { background: var(--isa-blue); color: #fff; border-color: var(--isa-blue); }
+  form.pill.off button { opacity: .65; }
+  form.pill button:hover { background: var(--isa-blue-40); color: var(--isa-dark); }
+  form.pill.on button:hover { background: var(--isa-dark); color: #fff; }
   form.addterm { display: inline-flex; gap: 6px; }
   input[type=text], input[type=number], input[type=time], select { border: 1px solid var(--isa-dark-40); border-radius: 6px;
     padding: 4px 8px; font-size: .9em; background: #fff; color: var(--ink); }
@@ -278,52 +285,71 @@ function deadlinesSection() {
 }
 
 function watchlistSection(watchlist, openId, activity) {
-  const topics = (watchlist?.topics ?? [])
-    .map((topic) => {
-      const keywordChips = (topic.keywords ?? []).map((k) => chip(topic.id, "keywords", k)).join("");
-      // Query editors for every registered source (so new sources are addable
-      // even before the topic has any terms for them).
-      const querySections = Object.keys(adapters)
-        .map((sourceId) => {
-          const terms = topic.queries?.[sourceId] ?? [];
-          const label = adapters[sourceId]?.label ?? sourceId;
-          return `<div class="kicker">Search queries · ${esc(label)}</div>
-            <div class="chips">${terms.map((t) => chip(topic.id, `query:${sourceId}`, t)).join("")}
-            ${addForm(topic.id, `query:${sourceId}`, "add search phrase…")}</div>`;
+  const sources = Object.values(adapters);
+  const areas = (watchlist?.focusAreas ?? [])
+    .map((fa) => {
+      const terms = fa.terms ?? [];
+      const applies = fa.appliesTo && fa.appliesTo.length ? fa.appliesTo : sources.map((s) => s.id);
+      const disabled = fa.enabled === false;
+      const spark = activity?.[fa.id] ? sparkline(activity[fa.id]) : "";
+
+      const termChips = terms
+        .map(
+          (t) => `<form method="post" action="/watchlist/term" class="chip">
+            <input type="hidden" name="action" value="remove"><input type="hidden" name="areaId" value="${esc(fa.id)}">
+            <input type="hidden" name="term" value="${esc(t)}">
+            <span>${esc(t)}</span><button title="Remove '${esc(t)}'">×</button></form>`
+        )
+        .join("");
+      const addTerm = `<form method="post" action="/watchlist/term" class="addterm">
+        <input type="hidden" name="action" value="add"><input type="hidden" name="areaId" value="${esc(fa.id)}">
+        <input type="text" name="term" placeholder="add term…" required><button>Add</button></form>`;
+
+      const sourcePills = sources
+        .map((s) => {
+          const on = applies.includes(s.id);
+          return `<form method="post" action="/watchlist/area-source" class="pill ${on ? "on" : "off"}">
+            <input type="hidden" name="areaId" value="${esc(fa.id)}"><input type="hidden" name="sourceId" value="${esc(s.id)}">
+            <input type="hidden" name="on" value="${on ? "false" : "true"}">
+            <button title="${on ? "Applies — click to exclude" : "Excluded — click to include"}">${on ? "✓ " : ""}${esc(s.label)}</button></form>`;
         })
         .join("");
-      const spark = activity?.[topic.id] ? sparkline(activity[topic.id]) : "";
-      const weightForm = `<form method="post" action="/watchlist/topic" class="addterm">
-        <input type="hidden" name="action" value="weight">
-        <input type="hidden" name="topicId" value="${esc(topic.id)}">
-        <label class="muted">weight <input type="number" name="weight" min="1" max="10" value="${esc(topic.weight)}" style="width:60px"></label>
+
+      const weightForm = `<form method="post" action="/watchlist/area" class="addterm">
+        <input type="hidden" name="action" value="weight"><input type="hidden" name="areaId" value="${esc(fa.id)}">
+        <label class="muted">weight <input type="number" name="weight" min="1" max="10" value="${esc(fa.weight)}" style="width:60px"></label>
         <button class="ghost tiny">save</button></form>`;
-      const deleteForm = `<form method="post" action="/watchlist/topic" onsubmit="return confirm('Delete the topic \\'${esc(topic.label)}\\' and all its terms?')">
-        <input type="hidden" name="action" value="delete">
-        <input type="hidden" name="topicId" value="${esc(topic.id)}">
-        <button class="ghost tiny">delete topic</button></form>`;
-      return `<details class="topic" id="t-${esc(topic.id)}"${openId === topic.id ? " open" : ""}>
-        <summary>${esc(topic.label)} <span class="muted">(weight ${esc(topic.weight)}, ${(topic.keywords ?? []).length} keywords)</span>${spark}</summary>
-        <div class="toolbar">${weightForm} ${deleteForm}</div>
-        <div class="kicker">Keywords (used for local scoring & matching)</div>
-        <div class="chips">${keywordChips} ${addForm(topic.id, "keywords", "add keyword…")}</div>
-        ${querySections}
+      const toggleForm = `<form method="post" action="/watchlist/area">
+        <input type="hidden" name="action" value="${disabled ? "enable" : "disable"}"><input type="hidden" name="areaId" value="${esc(fa.id)}">
+        <button class="ghost tiny">${disabled ? "enable" : "disable"}</button></form>`;
+      const deleteForm = `<form method="post" action="/watchlist/area" onsubmit="return confirm('Delete the focus area \\'${esc(fa.label)}\\' and all its terms?')">
+        <input type="hidden" name="action" value="delete"><input type="hidden" name="areaId" value="${esc(fa.id)}">
+        <button class="ghost tiny">delete</button></form>`;
+
+      return `<details class="topic" id="t-${esc(fa.id)}"${openId === fa.id ? " open" : ""}>
+        <summary>${esc(fa.label)} <span class="muted">(weight ${esc(fa.weight)}, ${terms.length} term${terms.length === 1 ? "" : "s"}${disabled ? " · disabled" : ""})</span>${spark}</summary>
+        <div class="toolbar">${weightForm} ${toggleForm} ${deleteForm}</div>
+        <div class="kicker">Terms <span class="muted" style="font-weight:400">— used to search sources AND to score &amp; tag items</span></div>
+        <div class="chips">${termChips} ${addTerm}</div>
+        <div class="kicker">Applies to sources</div>
+        <div class="chips">${sourcePills}</div>
       </details>`;
     })
     .join("\n");
+
   return `
-<h2>Watchlist topics</h2>
-<p class="muted">Click a topic to edit. Changes save to watchlist.json immediately and apply from the next run.</p>
-${topics}
-<details class="topic" id="t-newtopic"${openId === "newtopic" ? " open" : ""}>
-  <summary>➕ Add a new topic</summary>
-  <form method="post" action="/watchlist/topic" class="toolbar">
+<h2>Focus areas</h2>
+<p class="muted">Each focus area is an issue bucket with one list of <strong>terms</strong>. Terms drive both what we search for and how items are scored &amp; tagged — no more per-source query lists. Changes save immediately and apply from the next run.</p>
+${areas || '<p class="muted">No focus areas yet.</p>'}
+<details class="topic" id="t-newarea"${openId === "newarea" ? " open" : ""}>
+  <summary>➕ Add a focus area</summary>
+  <form method="post" action="/watchlist/area" class="toolbar">
     <input type="hidden" name="action" value="add">
-    <input type="text" name="label" placeholder="Topic name, e.g. Biotech / Gene Editing" required style="min-width:260px">
+    <input type="text" name="label" placeholder="Focus area name, e.g. Biotech / Gene Editing" required style="min-width:280px">
     <label class="muted">weight <input type="number" name="weight" min="1" max="10" value="7" style="width:60px"></label>
-    <button>Create topic</button>
+    <button>Create focus area</button>
   </form>
-  <p class="muted">Then open the new topic to add its keywords and search phrases.</p>
+  <p class="muted">Then open it to add terms and choose which sources it applies to.</p>
 </details>`;
 }
 
@@ -900,46 +926,110 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         return;
       }
 
-      if (req.method === "POST" && url.pathname === "/watchlist/topic") {
+      if (req.method === "POST" && url.pathname === "/watchlist/area") {
         const form = await readForm(req);
         const action = form.get("action");
         let notice;
-        let openId = "newtopic";
+        let openId = "newarea";
         try {
           const watchlist = loadWatchlist();
-          watchlist.topics ??= [];
+          watchlist.focusAreas ??= [];
+          const areas = watchlist.focusAreas;
           if (action === "add") {
             const label = (form.get("label") ?? "").trim();
-            if (!label) throw new Error("The topic name was empty");
+            if (!label) throw new Error("The focus area name was empty");
             const id = slugify(label);
-            if (watchlist.topics.some((t) => t.id === id)) throw new Error(`A topic like "${label}" already exists`);
+            if (areas.some((a) => a.id === id)) throw new Error(`A focus area like "${label}" already exists`);
             const weight = Math.min(10, Math.max(1, Number(form.get("weight") ?? 7) || 7));
-            watchlist.topics.push({ id, label, weight, keywords: [], queries: {} });
+            areas.push({ id, label, weight, enabled: true, terms: [], appliesTo: Object.keys(adapters) });
             saveWatchlist(watchlist);
-            notice = `Created topic "${label}" — now open it and add keywords and search phrases.`;
+            notice = `Created focus area "${label}" — now open it to add terms.`;
             openId = id;
-          } else if (action === "delete") {
-            const topicId = form.get("topicId") ?? "";
-            const idx = watchlist.topics.findIndex((t) => t.id === topicId);
-            if (idx < 0) throw new Error(`Unknown topic "${topicId}"`);
-            const [removed] = watchlist.topics.splice(idx, 1);
-            saveWatchlist(watchlist);
-            notice = `Deleted topic "${removed.label}".`;
-            openId = "";
-          } else if (action === "weight") {
-            const topicId = form.get("topicId") ?? "";
-            const topic = watchlist.topics.find((t) => t.id === topicId);
-            if (!topic) throw new Error(`Unknown topic "${topicId}"`);
-            topic.weight = Math.min(10, Math.max(1, Number(form.get("weight")) || topic.weight));
-            saveWatchlist(watchlist);
-            notice = `"${topic.label}" weight set to ${topic.weight}.`;
-            openId = topicId;
-          } else throw new Error("Unknown action");
+          } else {
+            const areaId = form.get("areaId") ?? "";
+            const area = areas.find((a) => a.id === areaId);
+            if (!area) throw new Error(`Unknown focus area "${areaId}"`);
+            openId = areaId;
+            if (action === "delete") {
+              areas.splice(areas.indexOf(area), 1);
+              saveWatchlist(watchlist);
+              notice = `Deleted focus area "${area.label}".`;
+              openId = "";
+            } else if (action === "weight") {
+              area.weight = Math.min(10, Math.max(1, Number(form.get("weight")) || area.weight));
+              saveWatchlist(watchlist);
+              notice = `"${area.label}" weight set to ${area.weight}.`;
+            } else if (action === "enable" || action === "disable") {
+              area.enabled = action === "enable";
+              saveWatchlist(watchlist);
+              notice = `"${area.label}" ${area.enabled ? "enabled" : "disabled"}. Applies from the next run.`;
+            } else throw new Error("Unknown action");
+          }
         } catch (err) {
           notice = `⚠️ ${err.message}`;
         }
         const anchor = /^[A-Za-z0-9_-]+$/.test(openId) ? `#t-${openId}` : "";
         redirect(res, `/watchlist?notice=${encodeURIComponent(notice)}&open=${encodeURIComponent(openId)}${anchor}`);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/watchlist/term") {
+        const form = await readForm(req);
+        const action = form.get("action");
+        const areaId = form.get("areaId") ?? "";
+        const term = (form.get("term") ?? "").trim();
+        let notice;
+        try {
+          const watchlist = loadWatchlist();
+          const area = (watchlist.focusAreas ?? []).find((a) => a.id === areaId);
+          if (!area) throw new Error(`Unknown focus area "${areaId}"`);
+          if (!term) throw new Error("The term was empty");
+          area.terms ??= [];
+          const idx = area.terms.findIndex((t) => t.toLowerCase() === term.toLowerCase());
+          if (action === "add") {
+            if (idx >= 0) notice = `"${term}" is already in "${area.label}".`;
+            else {
+              area.terms.push(term);
+              saveWatchlist(watchlist);
+              notice = `Added "${term}" to "${area.label}". Applies from the next run.`;
+            }
+          } else if (action === "remove") {
+            if (idx < 0) notice = `"${term}" wasn't found in "${area.label}".`;
+            else {
+              area.terms.splice(idx, 1);
+              saveWatchlist(watchlist);
+              notice = `Removed "${term}" from "${area.label}". Applies from the next run.`;
+            }
+          } else throw new Error("Unknown action");
+        } catch (err) {
+          notice = `⚠️ Couldn't update the focus area: ${err.message}`;
+        }
+        redirect(res, `/watchlist?notice=${encodeURIComponent(notice)}&open=${encodeURIComponent(areaId)}#t-${encodeURIComponent(areaId)}`);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/watchlist/area-source") {
+        const form = await readForm(req);
+        const areaId = form.get("areaId") ?? "";
+        const sourceId = form.get("sourceId") ?? "";
+        const on = form.get("on") === "true";
+        let notice;
+        try {
+          const watchlist = loadWatchlist();
+          const area = (watchlist.focusAreas ?? []).find((a) => a.id === areaId);
+          if (!area) throw new Error(`Unknown focus area "${areaId}"`);
+          if (!adapters[sourceId]) throw new Error(`Unknown source "${sourceId}"`);
+          const all = Object.keys(adapters);
+          area.appliesTo = (area.appliesTo && area.appliesTo.length ? area.appliesTo : [...all]).filter((s) => all.includes(s));
+          const has = area.appliesTo.includes(sourceId);
+          if (on && !has) area.appliesTo.push(sourceId);
+          if (!on && has) area.appliesTo = area.appliesTo.filter((s) => s !== sourceId);
+          saveWatchlist(watchlist);
+          notice = `"${area.label}" ${on ? "now includes" : "no longer includes"} ${adapters[sourceId].label}. Applies from the next run.`;
+        } catch (err) {
+          notice = `⚠️ ${err.message}`;
+        }
+        redirect(res, `/watchlist?notice=${encodeURIComponent(notice)}&open=${encodeURIComponent(areaId)}#t-${encodeURIComponent(areaId)}`);
         return;
       }
 
@@ -971,73 +1061,39 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         return;
       }
 
+      // LegiScan state-list editor (Sources page). Focus-area terms use /watchlist/term.
       if (req.method === "POST" && url.pathname === "/watchlist/update") {
         const form = await readForm(req);
         const action = form.get("action");
-        const topicId = form.get("topicId") ?? "";
-        const kind = form.get("kind") ?? "";
-        const term = (form.get("term") ?? "").trim();
-
+        const value = (form.get("term") ?? "").trim().toUpperCase();
         let notice;
-        const openId = kind === "states" ? "states" : topicId;
         try {
+          if (!/^[A-Z]{2}$/.test(value)) throw new Error(`"${form.get("term")}" isn't a two-letter code like IA or US`);
           const watchlist = loadWatchlist();
-          if (!term) throw new Error("The term was empty");
-
-          let list;
-          let where;
-          let value = term;
-          if (kind === "states") {
-            value = term.toUpperCase();
-            if (!/^[A-Z]{2}$/.test(value)) throw new Error(`"${term}" isn't a two-letter code like IA or US`);
-            watchlist.sources ??= {};
-            watchlist.sources.legiscan ??= { enabled: true, maxItemsPerRun: 40 };
-            watchlist.sources.legiscan.states ??= [];
-            list = watchlist.sources.legiscan.states;
-            where = "LegiScan state list";
-          } else {
-            const topic = (watchlist.topics ?? []).find((t) => t.id === topicId);
-            if (!topic) throw new Error(`Unknown topic "${topicId}"`);
-            if (kind === "keywords") {
-              topic.keywords ??= [];
-              list = topic.keywords;
-              where = `keywords of "${topic.label}"`;
-            } else if (kind.startsWith("query:")) {
-              const sourceId = kind.slice("query:".length);
-              if (!adapters[sourceId]) throw new Error(`Unknown source "${sourceId}"`);
-              topic.queries ??= {};
-              topic.queries[sourceId] ??= [];
-              list = topic.queries[sourceId];
-              where = `${adapters[sourceId].label} queries of "${topic.label}"`;
-            } else {
-              throw new Error("Unknown term type");
-            }
-          }
-
-          const existingIdx = list.findIndex((t) => t.toLowerCase() === value.toLowerCase());
+          watchlist.sources ??= {};
+          watchlist.sources.legiscan ??= { enabled: true, maxItemsPerRun: 40 };
+          watchlist.sources.legiscan.states ??= [];
+          const list = watchlist.sources.legiscan.states;
+          const existingIdx = list.findIndex((s) => s.toUpperCase() === value);
           if (action === "add") {
-            if (existingIdx >= 0) notice = `"${value}" is already in the ${where}.`;
+            if (existingIdx >= 0) notice = `${value} is already in the LegiScan state list.`;
             else {
               list.push(value);
               saveWatchlist(watchlist);
-              notice = `Added "${value}" to the ${where}. Applies from the next run.`;
+              notice = `Added ${value} to the LegiScan state list. Applies from the next run.`;
             }
           } else if (action === "remove") {
-            if (existingIdx < 0) notice = `"${value}" wasn't found in the ${where}.`;
+            if (existingIdx < 0) notice = `${value} wasn't in the LegiScan state list.`;
             else {
               list.splice(existingIdx, 1);
               saveWatchlist(watchlist);
-              notice = `Removed "${value}" from the ${where}. Applies from the next run.`;
+              notice = `Removed ${value} from the LegiScan state list. Applies from the next run.`;
             }
-          } else {
-            throw new Error("Unknown action");
-          }
+          } else throw new Error("Unknown action");
         } catch (err) {
-          notice = `⚠️ Couldn't update the watchlist: ${err.message}`;
+          notice = `⚠️ Couldn't update the state list: ${err.message}`;
         }
-        const anchor = /^[A-Za-z0-9_-]+$/.test(openId ?? "") ? `#t-${openId}` : "";
-        const base = kind === "states" ? "/sources" : "/watchlist";
-        redirect(res, `${base}?notice=${encodeURIComponent(notice)}&open=${encodeURIComponent(openId ?? "")}${anchor}`);
+        redirect(res, `/sources?notice=${encodeURIComponent(notice)}&open=states#t-states`);
         return;
       }
 
