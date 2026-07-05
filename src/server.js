@@ -81,54 +81,73 @@ function page(title, body) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
 <style>
-  :root { color-scheme: light dark; }
+  /* ---- ISA brand palette (from ISA24 Branding Guidelines: primary p10, 40-tints) ---- */
+  :root {
+    --isa-dark: #004A8D; --isa-blue: #0070C3; --isa-gold: #FFC425; --isa-gold-light: #FFD370;
+    --isa-dark-40: #9AB8D2; --isa-blue-40: #A5C6E3; --isa-gold-40: #FFE8AA; --isa-gold-light-40: #FFEEC7;
+    --isa-rust: #C65E35; --isa-olive: #91A22B;
+    --ink: #1c2b3a; --line: #d9e2ec; --surface: #ffffff;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 900px;
-         margin: 0 auto; padding: 24px 16px 64px; line-height: 1.55; }
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-           border-bottom: 2px solid #7a9c3e; padding-bottom: 10px; margin-bottom: 18px; }
-  header h1 { margin: 0; font-size: 1.5rem; } header h1 a { text-decoration: none; color: inherit; }
-  .tag { color: #7a9c3e; font-weight: 600; }
-  nav { margin-left: auto; display: flex; gap: 14px; font-weight: 600; }
+         margin: 0 auto; padding: 0 16px 64px; line-height: 1.55; color: var(--ink); background: var(--surface); }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+           border-bottom: 3px solid var(--isa-gold); padding: 14px 4px 10px; margin-bottom: 22px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .brand .logo { height: 40px; width: auto; display: block; border-radius: 3px; }
+  .brand .brandname { font-weight: 700; font-size: 1.15rem; letter-spacing: .2px; color: var(--isa-dark); }
+  nav { margin-left: auto; display: flex; gap: 2px; flex-wrap: wrap; font-weight: 600; }
+  nav a { text-decoration: none; color: var(--isa-dark); padding: 6px 10px; border-radius: 6px 6px 0 0;
+    border-bottom: 3px solid transparent; }
+  nav a:hover { background: var(--isa-blue-40); }
+  nav a.active { border-bottom-color: var(--isa-gold); color: var(--isa-blue); }
+  h1, h2, h3 { color: var(--isa-dark); }
+  h1 { font-size: 1.5rem; margin: .2em 0 .5em; } h2 { font-size: 1.3rem; } h3 { margin-top: 26px; }
   ul.briefs { list-style: none; padding: 0; } ul.briefs li { margin: 8px 0; }
   ul.briefs a { font-weight: 600; text-decoration: none; }
-  a { color: #4a7c2e; } a:hover { text-decoration: underline; }
+  a { color: var(--isa-blue); } a:hover { text-decoration: underline; }
   .muted { opacity: .7; font-size: .9em; }
-  hr { border: none; border-top: 1px solid #8884; margin: 20px 0; }
-  h2 { font-size: 1.3rem; } h3 { margin-top: 26px; }
-  form { display: inline; } button { background: #7a9c3e; color: white; border: none;
-    border-radius: 6px; padding: 6px 14px; font-size: .95rem; cursor: pointer; }
-  button:hover { background: #648232; }
-  button.ghost { background: transparent; color: inherit; border: 1px solid #8886; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+  form { display: inline; } button { background: var(--isa-blue); color: white; border: none;
+    border-radius: 6px; padding: 6px 14px; font-size: .95rem; cursor: pointer; font-weight: 600; }
+  button:hover { background: var(--isa-dark); }
+  button.ghost { background: transparent; color: var(--isa-dark); border: 1px solid var(--isa-dark-40); }
+  button.ghost:hover { background: var(--isa-blue-40); }
   button.tiny { padding: 2px 8px; font-size: .85rem; }
-  .banner { background: #7a9c3e22; border: 1px solid #7a9c3e66; border-radius: 8px;
+  .banner { background: var(--isa-blue-40); border: 1px solid var(--isa-blue); border-radius: 8px;
     padding: 8px 14px; margin: 12px 0; }
-  .banner.err { background: #c0392b22; border-color: #c0392b66; }
+  .banner.err { background: #f7d9d3; border-color: var(--isa-rust); }
   table.sources, table.items { border-collapse: collapse; width: 100%; margin: 8px 0 4px; }
   table.sources th, table.sources td, table.items th, table.items td
-    { text-align: left; padding: 6px 10px; border-bottom: 1px solid #8883; vertical-align: top; }
+    { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
   table.sources th, table.items th { font-size: .85em; opacity: .7; font-weight: 600; }
-  details.topic { border: 1px solid #8884; border-radius: 8px; padding: 8px 14px; margin: 8px 0; }
-  details.topic summary { cursor: pointer; font-weight: 600; }
+  details.topic { border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; margin: 8px 0; }
+  details.topic[open] { border-color: var(--isa-dark-40); }
+  details.topic summary { cursor: pointer; font-weight: 600; color: var(--isa-dark); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 10px; }
-  form.chip { display: inline-flex; align-items: center; gap: 4px; background: #7a9c3e1e;
-    border: 1px solid #7a9c3e55; border-radius: 999px; padding: 2px 4px 2px 10px; font-size: .9em; }
+  form.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--isa-gold-40);
+    border: 1px solid var(--isa-gold); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: .9em; }
   form.chip button { background: none; color: inherit; padding: 0 6px; font-size: 1em; opacity: .6; }
   form.chip button:hover { opacity: 1; background: none; }
   form.addterm { display: inline-flex; gap: 6px; }
-  input[type=text], input[type=number], input[type=time], select { border: 1px solid #8886; border-radius: 6px;
-    padding: 4px 8px; font-size: .9em; background: transparent; color: inherit; }
+  input[type=text], input[type=number], input[type=time], select { border: 1px solid var(--isa-dark-40); border-radius: 6px;
+    padding: 4px 8px; font-size: .9em; background: #fff; color: var(--ink); }
   form.addterm input[type=text] { min-width: 180px; }
-  .kicker { font-size: .85em; opacity: .75; margin: 10px 0 2px; font-weight: 600; }
+  .kicker { font-size: .85em; opacity: .75; margin: 10px 0 2px; font-weight: 600; color: var(--isa-dark); }
   .spark { vertical-align: middle; margin-left: 8px; opacity: .8; }
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; align-items: center; }
-  .answer { border: 1px solid #7a9c3e66; border-radius: 10px; padding: 6px 18px; margin: 14px 0;
-    background: #7a9c3e11; }
-  pre.logs { background: #0002; border: 1px solid #8884; border-radius: 8px; padding: 12px;
-    font-size: .8rem; overflow-x: auto; white-space: pre-wrap; }
+  .answer { border: 1px solid var(--isa-blue); border-radius: 10px; padding: 6px 18px; margin: 14px 0;
+    background: var(--isa-blue-40); }
+  pre.logs { background: #f3f6f9; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+    font-size: .8rem; overflow-x: auto; white-space: pre-wrap; color: var(--ink); }
   .fb { opacity: .55; } .fb.on { opacity: 1; }
 </style></head>
-<body><header><h1><a href="/">🌱 polibrief</a></h1><span class="tag">Iowa Soybean Association policy briefs</span>
-<nav><a href="/">Home</a><a href="/items">Items</a><a href="/search">Search</a><a href="/logs">Logs</a></nav></header>
+<body><header>
+<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">polibrief</span></a>
+<nav><a href="/">Home</a><a href="/items">Items</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/logs">Logs</a></nav>
+</header>
+<script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
 ${body}
 </body></html>`;
 }
@@ -184,7 +203,7 @@ function sparkline(series) {
   const h = 20;
   const step = w / Math.max(1, series.length - 1);
   const points = series.map((v, i) => `${(i * step).toFixed(1)},${(h - 2 - (v / max) * (h - 4)).toFixed(1)}`).join(" ");
-  return `<svg class="spark" width="${w}" height="${h}" aria-hidden="true"><polyline points="${points}" fill="none" stroke="#7a9c3e" stroke-width="1.5"/></svg>`;
+  return `<svg class="spark" width="${w}" height="${h}" aria-hidden="true"><polyline points="${points}" fill="none" stroke="#0070C3" stroke-width="1.5"/></svg>`;
 }
 
 // ---------- dashboard sections ----------
@@ -354,12 +373,7 @@ function homeBody(notice, openId = null) {
   let configSections;
   try {
     const watchlist = loadWatchlist();
-    const activity = store.activitySeries(watchlist.topics ?? [], 28);
-    configSections =
-      deadlinesSection() +
-      sourcesSection(watchlist, openId) +
-      watchlistSection(watchlist, openId, activity) +
-      settingsSection(watchlist, openId);
+    configSections = deadlinesSection() + settingsSection(watchlist, openId);
   } catch (err) {
     configSections = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
   }
@@ -377,6 +391,30 @@ ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${briefs.length ? `<ul class="briefs">${items}</ul>` : "<p class='muted'>No briefs yet. Click a Run button above, or wait for the next scheduled edition.</p>"}
 ${configSections}
 `;
+}
+
+// ---------- sources page ----------
+function sourcesBody(notice, openId) {
+  let body;
+  try {
+    body = sourcesSection(loadWatchlist(), openId);
+  } catch (err) {
+    body = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
+  }
+  return `${notice ? `<div class="banner">${esc(notice)}</div>` : ""}${body}`;
+}
+
+// ---------- watchlist page ----------
+function watchlistBody(notice, openId) {
+  let body;
+  try {
+    const watchlist = loadWatchlist();
+    const activity = store.activitySeries(watchlist.topics ?? [], 28);
+    body = watchlistSection(watchlist, openId, activity);
+  } catch (err) {
+    body = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
+  }
+  return `${notice ? `<div class="banner">${esc(notice)}</div>` : ""}${body}`;
 }
 
 // ---------- items page ----------
@@ -590,6 +628,18 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         return;
       }
 
+      // static brand asset (public — loads on the login page too)
+      if (req.method === "GET" && url.pathname === "/assets/isa-logo-main.png") {
+        try {
+          const buf = fs.readFileSync(new URL("./assets/isa-logo-main.png", import.meta.url));
+          res.writeHead(200, { "content-type": "image/png", "cache-control": "public, max-age=86400" });
+          res.end(buf);
+        } catch {
+          res.writeHead(404, { "content-type": "text/plain" }).end("not found");
+        }
+        return;
+      }
+
       if (!checkAuth(req, res)) return;
 
       // ----- pages -----
@@ -625,6 +675,18 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         const body = `<h2>Recent activity</h2><pre class="logs">${esc(logBuffer.slice(-300).join("\n") || "(nothing yet)")}</pre>`;
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page("polibrief · logs", body));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/watchlist") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("polibrief · watchlist", watchlistBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/sources") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("polibrief · sources", sourcesBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
         return;
       }
 
@@ -756,7 +818,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         } catch (err) {
           notice = `⚠️ ${err.message}`;
         }
-        redirect(res, `/?notice=${encodeURIComponent(notice)}`);
+        redirect(res, `/sources?notice=${encodeURIComponent(notice)}`);
         return;
       }
 
@@ -799,7 +861,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           notice = `⚠️ ${err.message}`;
         }
         const anchor = /^[A-Za-z0-9_-]+$/.test(openId) ? `#t-${openId}` : "";
-        redirect(res, `/?notice=${encodeURIComponent(notice)}&open=${encodeURIComponent(openId)}${anchor}`);
+        redirect(res, `/watchlist?notice=${encodeURIComponent(notice)}&open=${encodeURIComponent(openId)}${anchor}`);
         return;
       }
 
@@ -896,7 +958,8 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           notice = `⚠️ Couldn't update the watchlist: ${err.message}`;
         }
         const anchor = /^[A-Za-z0-9_-]+$/.test(openId ?? "") ? `#t-${openId}` : "";
-        redirect(res, `/?notice=${encodeURIComponent(notice)}&open=${encodeURIComponent(openId ?? "")}${anchor}`);
+        const base = kind === "states" ? "/sources" : "/watchlist";
+        redirect(res, `${base}?notice=${encodeURIComponent(notice)}&open=${encodeURIComponent(openId ?? "")}${anchor}`);
         return;
       }
 
