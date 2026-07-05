@@ -75,6 +75,52 @@ program
     await startServer({ port: Number(opts.port), schedule: opts.schedule });
   });
 
+// ----- v2 Entity Registry -----
+program
+  .command("registry-sync")
+  .description("Sync registry.json (the hand-seed) into the database (idempotent)")
+  .action(async () => {
+    const { syncRegistryFromSeed } = await import("./registry.js");
+    const r = syncRegistryFromSeed();
+    console.log(`🗂️  Synced ${r.entities} entities, ${r.channels} channels from registry.json`);
+  });
+
+program
+  .command("registry-seed <source>")
+  .description("Run one registry seeder: openstates | fec | socrata")
+  .action(async (source) => {
+    const { runSeed } = await import("./seed/index.js");
+    const r = await runSeed(source, { env: process.env });
+    console.log(`🌱 ${source}: ${JSON.stringify(r)}`);
+  });
+
+program
+  .command("registry-refresh")
+  .description("Sync the hand-seed + run every seeder whose API key is set (fail-soft)")
+  .action(async () => {
+    const { refreshRegistry } = await import("./seed/index.js");
+    const r = await refreshRegistry({ env: process.env });
+    console.log("\n✅ Registry refresh:");
+    for (const x of r.ran) console.log(`   ✓ ${x.id}: ${JSON.stringify(x)}`);
+    for (const x of r.skipped) console.log(`   ⚠️  ${x.id} skipped — ${x.reason}`);
+    console.log();
+  });
+
+program
+  .command("registry-health")
+  .description("List registry channels that never fetched or are stale (silent-failure guard)")
+  .option("--days <n>", "staleness threshold in days", "10")
+  .action(async (opts) => {
+    const store = await import("./store.js");
+    const stale = store.staleChannels(Number(opts.days));
+    console.log(`\n🩺 ${stale.length} channel(s) never fetched or stale >${opts.days}d:`);
+    for (const c of stale) {
+      const e = store.getEntity(c.entity_id);
+      console.log(`   ${(e?.full_name ?? c.entity_id).padEnd(28)} ${c.kind.padEnd(16)} ${(c.last_error ?? "").slice(0, 50)}`);
+    }
+    console.log();
+  });
+
 program.parseAsync(process.argv).catch((err) => {
   console.error(`\n❌ ${err.message}`);
   if (process.env.POLIBRIEF_DEBUG) console.error(err.stack);

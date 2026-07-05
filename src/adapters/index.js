@@ -23,6 +23,8 @@ import * as eurlex_oj from "./eurlex_oj.js";
 import * as iowa_admin_rules from "./iowa_admin_rules.js";
 import * as regulations_gov from "./regulations_gov.js";
 import * as courtlistener from "./courtlistener.js";
+import * as rss from "./rss.js";
+import * as email_intake from "./email_intake.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -32,4 +34,7 @@ export const adapters = {
   [iowa_admin_rules.id]: iowa_admin_rules,
   [regulations_gov.id]: regulations_gov,
   [courtlistener.id]: courtlistener,
+  // v2 entity-driven sources (registry channels / collector inbox, not topic queries):
+  [rss.id]: rss,
+  [email_intake.id]: email_intake,
 };

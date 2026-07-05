@@ -76,6 +76,9 @@ for (const columnDef of [
   "doc_type TEXT",
   "published_at TEXT",
   "feedback TEXT", // 'up' | 'down' from the web UI — feeds triage few-shots
+  "entity_id TEXT", // resolved registry entity (v2: rss/email-intake items)
+  "item_type TEXT", // news|statement|bill_action|vote|event|fundraiser (v2)
+  "geo TEXT", // JSON {county, districts} for events/entity items (v2)
 ]) {
   try {
     db.exec(`ALTER TABLE seen_items ADD COLUMN ${columnDef}`);
@@ -97,16 +100,72 @@ db.exec(`
   );
 `);
 
+// ---------------------------------------------------------------------------
+// v2 Entity Registry + geo cache. Additive — the v1.2 brief pipeline never
+// reads these tables, so shipping this alongside the running app is safe.
+// The registry is the backbone of v2: WHO we watch (entity) and HOW each one
+// publishes (channel). See src/registry.js. geo_cache memoizes address→county
+// lookups (src/geo.js) so we never re-hit the Census geocoder for one place.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS entity (
+    id           TEXT PRIMARY KEY,      -- stable slug ('us-sen-grassley') or 'system:extid'
+    type         TEXT NOT NULL,         -- candidate|officeholder|party_org|committee|caucus
+    full_name    TEXT NOT NULL,
+    party        TEXT,                  -- R|D|I|NP|other
+    office       TEXT,
+    district     TEXT,
+    ocd_id       TEXT,
+    level        TEXT,                  -- federal|state|county|local
+    counties     TEXT,                  -- JSON array of county names ('*' = statewide)
+    incumbent    INTEGER,               -- 0|1
+    status       TEXT DEFAULT 'active', -- active|inactive|withdrawn
+    external_ids TEXT,                  -- JSON {fec_id, openstates_person_id, bioguide, ...}
+    notes        TEXT,
+    source       TEXT,                  -- seed|openstates|fec|socrata|manual
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS channel (
+    id            TEXT PRIMARY KEY,     -- '<entity_id>::<kind>::<target>'
+    entity_id     TEXT NOT NULL,
+    kind          TEXT NOT NULL,        -- website|rss|ical|mobilize|eventbrite|x_handle|fb_page|newsletter_email|press_page|api
+    url_or_handle TEXT NOT NULL,
+    org_id        TEXT,                 -- platform id (Mobilize org, Eventbrite organizer, plus-address tag)
+    active        INTEGER DEFAULT 1,
+    last_ok_at    TEXT,                 -- channel health: last successful fetch
+    last_error    TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_channel_entity ON channel(entity_id);
+  CREATE INDEX IF NOT EXISTS idx_channel_kind   ON channel(kind);
+
+  CREATE TABLE IF NOT EXISTS geo_cache (
+    key         TEXT PRIMARY KEY,       -- normalized address / 'venue:<name>|<city>'
+    county      TEXT,
+    county_fips TEXT,
+    state       TEXT,
+    lat         REAL,
+    lng         REAL,
+    districts   TEXT,                   -- JSON {cd, sldl, sldu}
+    resolved_at TEXT NOT NULL
+  );
+`);
+
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,
-                          comment_deadline, doc_type, published_at)
+                          comment_deadline, doc_type, published_at, entity_id, item_type, geo)
   VALUES (@uid, @sourceId, @firstSeenAt, @verdict, @topics, @title, @url, @jurisdiction, @oneLine,
-          @commentDeadline, @docType, @publishedAt)
+          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo)
   ON CONFLICT(uid) DO UPDATE SET
     triage_verdict = excluded.triage_verdict,
     triage_topics  = excluded.triage_topics,
-    one_line       = excluded.one_line
+    one_line       = excluded.one_line,
+    entity_id      = COALESCE(excluded.entity_id, seen_items.entity_id),
+    item_type      = COALESCE(excluded.item_type, seen_items.item_type),
+    geo            = COALESCE(excluded.geo, seen_items.geo)
 `);
 const stmtGetSince = db.prepare("SELECT last_success_at FROM runs WHERE source_id = ?");
 const stmtSetLastSuccess = db.prepare(`
@@ -136,6 +195,9 @@ export function markSeen(item, verdict = null) {
     commentDeadline: item.raw?.commentsCloseOn ?? null,
     docType: item.docType ?? null,
     publishedAt: item.publishedAt ?? null,
+    entityId: item.raw?.entityId ?? null,
+    itemType: verdict?.type ?? item.raw?.itemType ?? null,
+    geo: item.raw?.geo ? JSON.stringify(item.raw.geo) : null,
   });
 }
 
@@ -249,7 +311,7 @@ export function getItemByUid(uid) {
   return db
     .prepare(
       `SELECT uid, source_id, title, url, jurisdiction, one_line, triage_topics,
-              comment_deadline, doc_type, published_at
+              comment_deadline, doc_type, published_at, entity_id, item_type, geo
          FROM seen_items WHERE uid = ?`
     )
     .get(uid);
@@ -316,7 +378,7 @@ export function listItems({ q = "", topicId = "", sourceId = "", verdict = "", d
   return db
     .prepare(
       `SELECT uid, source_id, title, url, jurisdiction, doc_type, triage_verdict, triage_topics,
-              one_line, comment_deadline, published_at, first_seen_at, feedback
+              one_line, comment_deadline, published_at, first_seen_at, feedback, entity_id, item_type, geo
          FROM seen_items WHERE ${clauses.join(" AND ")}
         ORDER BY first_seen_at DESC LIMIT ?`
     )
@@ -422,6 +484,165 @@ export async function backupNow() {
     fs.rmSync(path.join(backupsRoot, old), { recursive: true, force: true });
   }
   return dir;
+}
+
+// ---------------------------------------------------------------------------
+// Entity Registry (v2) — CRUD used by src/registry.js, the seeders, and the UI.
+// Additive to the v1 pipeline; see src/registry.js for how the seed populates these.
+
+const stmtUpsertEntity = db.prepare(`
+  INSERT INTO entity (id, type, full_name, party, office, district, ocd_id, level,
+                      counties, incumbent, status, external_ids, notes, source, created_at, updated_at)
+  VALUES (@id, @type, @full_name, @party, @office, @district, @ocd_id, @level,
+          @counties, @incumbent, @status, @external_ids, @notes, @source, @now, @now)
+  ON CONFLICT(id) DO UPDATE SET
+    type = excluded.type, full_name = excluded.full_name, party = excluded.party,
+    office = excluded.office, district = excluded.district, ocd_id = excluded.ocd_id,
+    level = excluded.level, counties = excluded.counties, incumbent = excluded.incumbent,
+    status = excluded.status,
+    external_ids = COALESCE(excluded.external_ids, entity.external_ids),
+    notes = COALESCE(excluded.notes, entity.notes),
+    source = excluded.source, updated_at = excluded.updated_at
+`);
+
+/** Insert or update an entity by id. Null external_ids/notes never clobber existing. */
+export function upsertEntity(e) {
+  const now = new Date().toISOString();
+  const extIds = e.external_ids ?? e.externalIds;
+  stmtUpsertEntity.run({
+    id: e.id,
+    type: e.type,
+    full_name: e.full_name ?? e.fullName ?? "",
+    party: e.party ?? null,
+    office: e.office ?? null,
+    district: e.district ?? null,
+    ocd_id: e.ocd_id ?? e.ocdId ?? null,
+    level: e.level ?? null,
+    counties: e.counties ? JSON.stringify(e.counties) : null,
+    incumbent: e.incumbent == null ? null : e.incumbent ? 1 : 0,
+    status: e.status ?? "active",
+    external_ids: extIds ? JSON.stringify(extIds) : null,
+    notes: e.notes ?? null,
+    source: e.source ?? "manual",
+    now,
+  });
+  return e.id;
+}
+
+const stmtUpsertChannel = db.prepare(`
+  INSERT INTO channel (id, entity_id, kind, url_or_handle, org_id, active, created_at, updated_at)
+  VALUES (@id, @entity_id, @kind, @url_or_handle, @org_id, @active, @now, @now)
+  ON CONFLICT(id) DO UPDATE SET
+    entity_id = excluded.entity_id, kind = excluded.kind,
+    url_or_handle = excluded.url_or_handle, org_id = excluded.org_id,
+    active = excluded.active, updated_at = excluded.updated_at
+`);
+
+/** Insert or update a channel. Deterministic id (entity::kind::target) unless provided. */
+export function upsertChannel(c) {
+  const now = new Date().toISOString();
+  const entityId = c.entity_id ?? c.entityId;
+  const target = c.url_or_handle ?? c.url ?? c.handle ?? "";
+  const id = c.id ?? `${entityId}::${c.kind}::${target}`;
+  stmtUpsertChannel.run({
+    id,
+    entity_id: entityId,
+    kind: c.kind,
+    url_or_handle: target,
+    org_id: c.org_id ?? c.orgId ?? null,
+    active: c.active === false ? 0 : 1,
+    now,
+  });
+  return id;
+}
+
+export function getEntity(id) {
+  return db.prepare("SELECT * FROM entity WHERE id = ?").get(id);
+}
+
+/** List entities. `county` matches the JSON counties array (or statewide '*'). */
+export function listEntities({ type, level, status = "active", county, limit = 5000 } = {}) {
+  const clauses = [];
+  const params = [];
+  if (status) {
+    clauses.push("status = ?");
+    params.push(status);
+  }
+  if (type) {
+    clauses.push("type = ?");
+    params.push(type);
+  }
+  if (level) {
+    clauses.push("level = ?");
+    params.push(level);
+  }
+  if (county) {
+    clauses.push("(counties LIKE ? OR counties LIKE ?)");
+    params.push(`%"${county}"%`, '%"*"%');
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  return db.prepare(`SELECT * FROM entity ${where} ORDER BY full_name LIMIT ?`).all(...params, limit);
+}
+
+export function listChannels({ kind, entityId, active = 1 } = {}) {
+  const clauses = [];
+  const params = [];
+  if (active != null) {
+    clauses.push("active = ?");
+    params.push(active ? 1 : 0);
+  }
+  if (kind) {
+    clauses.push("kind = ?");
+    params.push(kind);
+  }
+  if (entityId) {
+    clauses.push("entity_id = ?");
+    params.push(entityId);
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  return db.prepare(`SELECT * FROM channel ${where}`).all(...params);
+}
+
+/** Channel health: record a successful fetch, or an error, for a channel. */
+export function markChannelHealth(id, ok, error = null) {
+  if (ok) {
+    db.prepare("UPDATE channel SET last_ok_at = ?, last_error = NULL WHERE id = ?").run(new Date().toISOString(), id);
+  } else {
+    db.prepare("UPDATE channel SET last_error = ? WHERE id = ?").run(String(error ?? "").slice(0, 300), id);
+  }
+}
+
+/** Active channels never fetched, or not fetched in `days` — the silent-failure guard. */
+export function staleChannels(days = 10) {
+  const cutoff = new Date(Date.now() - days * 86400e3).toISOString();
+  return db.prepare("SELECT * FROM channel WHERE active = 1 AND (last_ok_at IS NULL OR last_ok_at < ?)").all(cutoff);
+}
+
+export function entityCountsByType() {
+  return db.prepare("SELECT type, COUNT(*) AS n FROM entity WHERE status = 'active' GROUP BY type ORDER BY type").all();
+}
+
+export function getGeoCache(key) {
+  return db.prepare("SELECT * FROM geo_cache WHERE key = ?").get(key);
+}
+
+export function saveGeoCache(key, g) {
+  db.prepare(
+    `INSERT INTO geo_cache (key, county, county_fips, state, lat, lng, districts, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET county = excluded.county, county_fips = excluded.county_fips,
+       state = excluded.state, lat = excluded.lat, lng = excluded.lng,
+       districts = excluded.districts, resolved_at = excluded.resolved_at`
+  ).run(
+    key,
+    g.county ?? null,
+    g.county_fips ?? null,
+    g.state ?? null,
+    g.lat ?? null,
+    g.lng ?? null,
+    g.districts ? JSON.stringify(g.districts) : null,
+    new Date().toISOString()
+  );
 }
 
 export { DB_PATH, PROJECT_ROOT, DATA_DIR };

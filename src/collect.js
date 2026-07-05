@@ -7,6 +7,7 @@
 
 import { adapters } from "./adapters/index.js";
 import * as store from "./store.js";
+import { channelsForKinds } from "./registry.js";
 
 /**
  * @param {object} opts
@@ -34,10 +35,14 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
     const runStartedAt = new Date().toISOString();
     const sinceISO = store.getSince(sourceId);
     try {
+      // Entity-driven adapters (e.g. rss, ical, mobilize, email_intake) declare the
+      // registry channel kinds they consume; topic-query adapters ignore `channels`.
+      const channels = adapter.channelKinds ? channelsForKinds(adapter.channelKinds) : [];
       const fetched = await adapter.fetchItems({
         sinceISO,
         topics: watchlist.topics ?? [],
         sourceConfig,
+        channels,
         env,
       });
       fetchedCount += fetched.length;

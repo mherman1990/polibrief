@@ -11,8 +11,9 @@ import { collectAll } from "./collect.js";
 import { scoreItems } from "./score.js";
 import { triageItems } from "./triage.js";
 import { generateBrief } from "./brief.js";
-import { saveBrief, postToTeams, sendEmail } from "./deliver.js";
+import { saveBrief, postToTeams, sendEmail, sendFarmerEmail } from "./deliver.js";
 import { adapters } from "./adapters/index.js";
+import { syncRegistryFromSeed } from "./registry.js";
 
 /** The live watchlist file: the data-volume copy in Docker/Umbrel, else the project one. */
 export function watchlistFilePath() {
@@ -123,6 +124,16 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
 
   console.log(`\n🌱 The Bean Brief ${dryRun ? "(dry run — no Anthropic calls)" : `— ${edition} edition`}\n`);
 
+  // Keep the entity registry current so entity-driven adapters (rss/email-intake)
+  // have their channels even on a bare CLI/cron run (the server also syncs on startup).
+  // Idempotent; also means registry.json edits apply on the next run, no restart needed.
+  try {
+    const r = syncRegistryFromSeed();
+    if (r.entities) console.log(`🗂️  Registry: ${r.entities} entities, ${r.channels} channels synced`);
+  } catch (err) {
+    console.log(`⚠️  Registry sync skipped: ${err.message}`);
+  }
+
   // 1. Collect. Dry runs never write state (no last-success advance, no items marked seen).
   const { items, skippedSources, fetchedCount } = await collectAll({
     watchlist,
@@ -214,6 +225,20 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
     if (await sendEmail(markdown, edition, env, watchlist)) deliveredTo.push("email");
   } catch (err) {
     console.log(`⚠️  Email delivery failed: ${err.message}`);
+  }
+
+  // 5b. Farmer-facing render (Track A second audience). Same relevant[] set, plain
+  // nonpartisan tone. Opt-in (output.farmerBrief === true) so the running app's cost
+  // never changes silently; emailed only if FARMER_BRIEF_TO is set, else saved/web.
+  if (watchlist.output?.farmerBrief === true) {
+    try {
+      const farmerMd = await generateBrief({ relevantItems: relevant, watchlist, edition, env, stats, audience: "farmer" });
+      const farmerPath = saveBrief(farmerMd, `${edition}-farmer`, timezone);
+      deliveredTo.push(path.relative(store.DATA_DIR, farmerPath));
+      if (await sendFarmerEmail(farmerMd, edition, env)) deliveredTo.push("farmer email");
+    } catch (err) {
+      console.log(`⚠️  Farmer brief failed: ${err.message}`);
+    }
   }
 
   console.log(`\n✅ Saved ${deliveredTo.join(" · posted to ")}\n`);

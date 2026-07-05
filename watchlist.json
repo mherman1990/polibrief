@@ -55,6 +55,16 @@
     "courtlistener": {
       "enabled": true,
       "maxItemsPerRun": 10
+    },
+    "rss": {
+      "enabled": true,
+      "maxItemsPerRun": 60
+    },
+    "email_intake": {
+      "enabled": false,
+      "maxItemsPerRun": 100,
+      "mailbox": "INBOX",
+      "_note": "Enable after setting EMAIL_INTAKE_PASS to a Gmail App Password (2FA required)."
     }
   },
   "focusAreas": [
@@ -248,6 +258,8 @@
     "maxItemsToTriage": 80,
     "maxItemsInBrief": 25,
     "teams": false,
-    "email": true
+    "email": true,
+    "farmerBrief": true,
+    "entitySourceBoost": 6
   }
 }

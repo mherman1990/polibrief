@@ -24,6 +24,7 @@ const BOOST_TERMS = ["Iowa", "soybean", "soy oil"].map(keywordRegex);
 export function scoreItems(items, topics, output) {
   const minScore = output?.minLocalScoreForTriage ?? 5;
   const maxToTriage = output?.maxItemsToTriage ?? 80;
+  const entityBoost = output?.entitySourceBoost ?? 6;
 
   // Pre-compile every topic's keyword regexes once.
   const compiled = topics.map((topic) => ({
@@ -47,6 +48,10 @@ export function scoreItems(items, topics, output) {
       }
     }
     if (BOOST_TERMS.some((re) => re.test(text))) score += 3;
+    // Registry-sourced items (rss/email-intake) are curated by definition — boost
+    // them so a tracked entity's post clears the local filter even when it doesn't
+    // hit a topic keyword. Keyword hits still stack on top for ranking.
+    if (item.raw?.entityId) score += entityBoost;
     return { ...item, localScore: score, matchedTopics };
   });
 

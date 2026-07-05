@@ -42,7 +42,32 @@ Hard rules:
 - Do not write anything after the last section — no sign-off, no stats footer (it is appended automatically).`;
 }
 
-export async function generateBrief({ relevantItems, watchlist, edition, env, stats }) {
+// The farmer-facing render (Track A second audience): same items, plain and strictly
+// nonpartisan. This is what goes to ISA members, so it must never read as political.
+function farmerBriefSystemPrompt(dateLabel) {
+  return `You write "The Bean Brief for Farmers", a plain-English, strictly NONPARTISAN policy update for Iowa soybean FARMERS — not political insiders. The reader is a busy farmer who wants to know what is happening in policy that could affect their operation.
+
+Produce EXACTLY this markdown structure:
+
+## The Bean Brief for Farmers — ${dateLabel}
+
+### What's happening
+3–6 items in plain language. For each: what happened + what it could mean for an Iowa soybean operation, in neutral terms. Include the source link.
+
+### Worth a look
+Shorter items, one line each. Omit this section if there are none.
+
+### Dates to know
+Comment deadlines and key dates, soonest first. Omit this section if there are none.
+
+Hard rules:
+- STRICTLY nonpartisan and factual. Never say who to support or oppose; no campaign or partisan framing; no political strategy or optics.
+- Write for a farmer: plain words, and briefly explain any jargon (e.g., "RFS" → "the federal rule requiring biofuel to be blended into the fuel supply").
+- NEVER invent items. Include each item's URL as a markdown link.
+- Do not write anything after the last section — no sign-off, no stats footer (it is appended automatically).`;
+}
+
+export async function generateBrief({ relevantItems, watchlist, edition, env, stats, audience = "internal" }) {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
   const statesTracked = (watchlist.sources?.legiscan?.states ?? []).join(", ") || "state";
@@ -70,15 +95,18 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
       tracked: Boolean(item.tracked),
     }));
 
+  const isFarmer = audience === "farmer";
   let body;
   if (items.length === 0) {
     // No Sonnet call needed for an empty day — that's a $0 brief.
-    body = `## ISA Policy Brief — ${dateLabel} (${edition.toUpperCase()} edition)\n\nNo new items relevant to the watchlist were found in this scan. Quiet day on the policy front. 🌱\n`;
+    body = isFarmer
+      ? `## The Bean Brief for Farmers — ${dateLabel}\n\nNo major policy updates affecting Iowa soybean farms in this scan. 🌱\n`
+      : `## ISA Policy Brief — ${dateLabel} (${edition.toUpperCase()} edition)\n\nNo new items relevant to the watchlist were found in this scan. Quiet day on the policy front. 🌱\n`;
   } else {
     const response = await client.messages.create({
       model,
       max_tokens: 8000,
-      system: briefSystemPrompt(statesTracked),
+      system: isFarmer ? farmerBriefSystemPrompt(dateLabel) : briefSystemPrompt(statesTracked),
       messages: [
         {
           role: "user",
@@ -86,18 +114,23 @@ export async function generateBrief({ relevantItems, watchlist, edition, env, st
         },
       ],
     });
-    store.recordUsage(model, "brief", response.usage.input_tokens, response.usage.output_tokens);
+    store.recordUsage(model, isFarmer ? "brief-farmer" : "brief", response.usage.input_tokens, response.usage.output_tokens);
     body = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   }
 
-  // Exact stats footer, appended programmatically.
-  const skippedText = stats.skippedSources.length
-    ? stats.skippedSources.map((s) => s.label).join(", ")
-    : "none";
-  const footer =
-    `\n\n---\n*Scanned: ${stats.fetchedCount} items across ${stats.sourceCount} sources | ` +
-    `${relevantItems.length} relevant after triage |\n` +
-    `Skipped sources: ${skippedText} | Generated ${new Date().toLocaleString("en-US", { timeZone: timezone })} (${timezone})*\n`;
+  // Footer appended programmatically. Farmers get a plain nonpartisan line; the
+  // internal edition gets the full scan stats.
+  const generatedAt = new Date().toLocaleString("en-US", { timeZone: timezone });
+  let footer;
+  if (isFarmer) {
+    footer = `\n\n---\n*The Bean Brief — ${generatedAt} (${timezone}). Informational and nonpartisan; not an endorsement of any candidate or party.*\n`;
+  } else {
+    const skippedText = stats.skippedSources.length ? stats.skippedSources.map((s) => s.label).join(", ") : "none";
+    footer =
+      `\n\n---\n*Scanned: ${stats.fetchedCount} items across ${stats.sourceCount} sources | ` +
+      `${relevantItems.length} relevant after triage |\n` +
+      `Skipped sources: ${skippedText} | Generated ${generatedAt} (${timezone})*\n`;
+  }
 
   return body + footer;
 }

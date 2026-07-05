@@ -24,6 +24,7 @@ import { runPipeline, runWeekly, answerQuery, loadWatchlist, saveWatchlist } fro
 import { adapters } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
 import { summarizeItem, summaryExpiry } from "./summarize.js";
+import { syncRegistryFromSeed } from "./registry.js";
 
 // ---------- log ring buffer (powers /logs) ----------
 const logBuffer = [];
@@ -161,14 +162,14 @@ function page(title, body) {
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
-<nav><a href="/">Home</a><a href="/items">Items</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/logs">Logs</a></nav>
+<nav><a href="/">Home</a><a href="/items">Items</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs</a></nav>
 </header>
 <script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
 ${body}
 </body></html>`;
 }
 
-const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly)\.md$/;
+const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly)(-farmer)?\.md$/;
 
 // ---------- run management ----------
 let runInProgress = false;
@@ -446,6 +447,67 @@ function sourcesBody(notice, openId) {
   return `${notice ? `<div class="banner">${esc(notice)}</div>` : ""}${body}`;
 }
 
+// ---------- registry page (v2) ----------
+function registryBody(notice) {
+  let body;
+  try {
+    const counts = store.entityCountsByType();
+    const total = counts.reduce((a, c) => a + c.n, 0);
+    const entities = store.listEntities({ limit: 500 });
+    const channels = store.listChannels({ active: 1 });
+    const chanByEntity = new Map();
+    for (const c of channels) chanByEntity.set(c.entity_id, (chanByEntity.get(c.entity_id) ?? 0) + 1);
+    const stale = store.staleChannels(10);
+
+    const countLine = counts.map((c) => `<strong>${c.n}</strong> ${esc(c.type)}`).join(" · ") || "no entities yet";
+
+    const staleHtml =
+      channels.length === 0
+        ? ""
+        : stale.length === 0
+          ? `<p class="muted">🟢 All ${channels.length} active channels have fetched OK (or are new).</p>`
+          : `<details class="topic"><summary>🟠 ${stale.length} channel(s) never fetched or stale &gt;10d — the silent-failure guard</summary>
+             <table class="sources"><tr><th>Entity</th><th>Kind</th><th>Target</th><th>Last error</th></tr>
+             ${stale
+               .slice(0, 60)
+               .map((c) => {
+                 const e = store.getEntity(c.entity_id);
+                 return `<tr><td>${esc(e?.full_name ?? c.entity_id)}</td><td>${esc(c.kind)}</td><td class="muted">${esc(
+                   (c.url_or_handle || "").slice(0, 50)
+                 )}</td><td class="muted">${esc((c.last_error || "—").slice(0, 60))}</td></tr>`;
+               })
+               .join("")}</table></details>`;
+
+    const rows = entities
+      .map(
+        (e) => `<tr>
+        <td><strong>${esc(e.full_name)}</strong></td>
+        <td>${esc(e.type)}</td>
+        <td>${esc(e.party ?? "")}</td>
+        <td>${esc(e.office ?? "")}${e.district ? ` <span class="muted">d${esc(e.district)}</span>` : ""}</td>
+        <td>${esc(e.level ?? "")}</td>
+        <td>${chanByEntity.get(e.id) ?? 0}</td>
+        <td class="muted">${esc(e.source ?? "")}</td></tr>`
+      )
+      .join("\n");
+
+    body = `<h2>Entity Registry</h2>
+    <p>${countLine} — <strong>${total}</strong> total · ${channels.length} active channels.</p>
+    <form method="post" action="/registry/sync" style="margin:.5rem 0">
+      <button class="ghost">↻ Sync registry.json → database</button>
+      <span class="muted">Re-imports the hand-seed file (idempotent). Machine seeders run from the CLI.</span></form>
+    ${staleHtml}
+    <table class="sources">
+      <tr><th>Name</th><th>Type</th><th>Party</th><th>Office</th><th>Level</th><th>Ch.</th><th>Source</th></tr>
+      ${rows || `<tr><td colspan="7" class="muted">No entities yet — click Sync above, or seed from the CLI: <code>node src/index.js registry-refresh</code>.</td></tr>`}
+    </table>
+    <p class="muted">The backbone of v2: <em>who</em> we watch and <em>how</em> each publishes. Seed state legislators with <code>registry-seed openstates</code>.</p>`;
+  } catch (err) {
+    body = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
+  }
+  return `${notice ? `<div class="banner">${esc(notice)}</div>` : ""}${body}`;
+}
+
 // ---------- watchlist page ----------
 function watchlistBody(notice, openId) {
   let body;
@@ -674,6 +736,7 @@ function seedDataDir() {
   if (store.DATA_DIR === store.PROJECT_ROOT) return;
   const seeds = [
     { from: path.join(store.PROJECT_ROOT, "watchlist.json"), to: path.join(store.DATA_DIR, "watchlist.json") },
+    { from: path.join(store.PROJECT_ROOT, "registry.json"), to: path.join(store.DATA_DIR, "registry.json") },
     { from: path.join(store.PROJECT_ROOT, ".env.example"), to: path.join(store.DATA_DIR, ".env") },
   ];
   for (const { from, to } of seeds) {
@@ -688,6 +751,12 @@ function seedDataDir() {
 export async function startServer({ port = 8484, schedule = true } = {}) {
   captureConsole();
   seedDataDir();
+  try {
+    const r = syncRegistryFromSeed();
+    console.log(`🗂️  Registry synced: ${r.entities} entities, ${r.channels} channels`);
+  } catch (err) {
+    console.log(`⚠️  Registry sync skipped: ${err.message}`);
+  }
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -757,6 +826,24 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "GET" && url.pathname === "/sources") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page("The Bean Brief · sources", sourcesBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/registry") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · registry", registryBody(url.searchParams.get("notice"))));
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/registry/sync") {
+        let notice;
+        try {
+          const r = syncRegistryFromSeed();
+          notice = `Synced registry.json — ${r.entities} entities, ${r.channels} channels.`;
+        } catch (err) {
+          notice = `Sync failed: ${err.message}`;
+        }
+        redirect(res, `/registry?notice=${encodeURIComponent(notice)}`);
         return;
       }
 

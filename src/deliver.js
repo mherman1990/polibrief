@@ -69,6 +69,18 @@ export async function postToTeams(markdown, env) {
   return true;
 }
 
+/** Low-level SMTP send shared by the internal and farmer renders. */
+async function sendMarkdownEmail({ markdown, subject, to, env }) {
+  const { default: nodemailer } = await import("nodemailer");
+  const transport = nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: Number(env.SMTP_PORT || 587),
+    secure: Number(env.SMTP_PORT || 587) === 465,
+    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+  });
+  await transport.sendMail({ from: env.SMTP_USER, to, subject, text: markdown });
+}
+
 export async function sendEmail(markdown, edition, env, watchlist) {
   const wantEmail = watchlist.output?.email === true;
   const configured = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && env.BRIEF_EMAIL_TO;
@@ -77,18 +89,28 @@ export async function sendEmail(markdown, edition, env, watchlist) {
     console.log('📧 Email: watchlist has "email": true but SMTP settings are missing in .env — skipping');
     return false;
   }
-  const { default: nodemailer } = await import("nodemailer");
-  const transport = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: Number(env.SMTP_PORT || 587),
-    secure: Number(env.SMTP_PORT || 587) === 465,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
-  });
-  await transport.sendMail({
-    from: env.SMTP_USER,
-    to: env.BRIEF_EMAIL_TO,
+  await sendMarkdownEmail({
+    markdown,
     subject: `ISA Policy Brief — ${new Intl.DateTimeFormat("en-CA").format(new Date())} (${edition.toUpperCase()})`,
-    text: markdown,
+    to: env.BRIEF_EMAIL_TO,
+    env,
+  });
+  return true;
+}
+
+/**
+ * Farmer-facing render → FARMER_BRIEF_TO (comma-separated). Returns false (skips)
+ * when no farmer recipients or SMTP are configured — the render is still saved/web.
+ */
+export async function sendFarmerEmail(markdown, edition, env) {
+  const to = env.FARMER_BRIEF_TO;
+  const configured = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && to;
+  if (!configured) return false;
+  await sendMarkdownEmail({
+    markdown,
+    subject: `The Bean Brief for Farmers — ${new Intl.DateTimeFormat("en-CA").format(new Date())}`,
+    to,
+    env,
   });
   return true;
 }

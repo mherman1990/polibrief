@@ -10,7 +10,7 @@ import * as store from "./store.js";
 
 const BATCH_SIZE = 15;
 
-const SYSTEM_PROMPT = `You are triaging government documents for relevance to Iowa soybean farmers and the Iowa Soybean Association's policy priorities. For each item, return strict JSON: {"uid": "...", "relevant": true|false, "topicIds": [...], "oneLine": "..."} — oneLine is a one-line why-it-matters for Iowa soy. Respond ONLY with a JSON array covering every input item, no other text.`;
+const SYSTEM_PROMPT = `You are triaging government documents and political items for relevance to Iowa soybean farmers and the Iowa Soybean Association's policy priorities. For each item, return strict JSON: {"uid": "...", "relevant": true|false, "topicIds": [...], "oneLine": "...", "type": "..."} — oneLine is a one-line why-it-matters for Iowa soy; type is your best guess of the item kind, one of: news|statement|bill_action|vote|event|fundraiser|rule|other. Respond ONLY with a JSON array covering every input item, no other text.`;
 
 /** Human 👍/👎 corrections from the web UI become few-shot guidance for future triage. */
 function feedbackGuidance() {
@@ -104,12 +104,23 @@ export async function triageItems(kept, topics, env) {
     for (const item of batch) {
       const v = byUid.get(item.uid);
       const verdict = v
-        ? { relevant: Boolean(v.relevant), topicIds: Array.isArray(v.topicIds) ? v.topicIds : [], oneLine: String(v.oneLine ?? "") }
+        ? {
+            relevant: Boolean(v.relevant),
+            topicIds: Array.isArray(v.topicIds) ? v.topicIds : [],
+            oneLine: String(v.oneLine ?? ""),
+            type: v.type ? String(v.type) : (item.docType ?? null),
+          }
         : null;
       store.markSeen(item, verdict);
       triagedCount++;
       if (verdict?.relevant) {
-        relevant.push({ ...item, oneLine: verdict.oneLine, topicIds: verdict.topicIds });
+        relevant.push({
+          ...item,
+          oneLine: verdict.oneLine,
+          topicIds: verdict.topicIds,
+          type: verdict.type,
+          entityId: item.raw?.entityId ?? null,
+        });
       }
     }
   }
