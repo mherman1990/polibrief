@@ -23,6 +23,7 @@ import * as store from "./store.js";
 import { runPipeline, runWeekly, answerQuery, loadWatchlist, saveWatchlist } from "./pipeline.js";
 import { adapters } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
+import { summarizeItem, summaryExpiry } from "./summarize.js";
 
 // ---------- log ring buffer (powers /logs) ----------
 const logBuffer = [];
@@ -125,6 +126,14 @@ function page(title, body) {
   details.topic { border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; margin: 8px 0; }
   details.topic[open] { border-color: var(--isa-dark-40); }
   details.topic summary { cursor: pointer; font-weight: 600; color: var(--isa-dark); }
+  details.summary { margin: 6px 0 2px; }
+  details.summary > summary { cursor: pointer; font-size: .9em; font-weight: 600; color: var(--isa-blue); list-style: none; }
+  details.summary > summary::-webkit-details-marker { display: none; }
+  details.summary > summary::before { content: "▸ "; }
+  details.summary[open] > summary::before { content: "▾ "; }
+  .sumbody { margin: 8px 0 4px; padding: 10px 12px; background: var(--isa-blue-40); border-radius: 8px; font-size: .95em; line-height: 1.5; }
+  .sumbody p { margin: .4em 0; } .sumbody ul { margin: .4em 0; padding-left: 1.2em; }
+  .summeta { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); font-size: .82em; opacity: .7; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 10px; }
   form.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--isa-gold-40);
     border: 1px solid var(--isa-gold); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: .9em; }
@@ -144,7 +153,7 @@ function page(title, body) {
   .fb { opacity: .55; } .fb.on { opacity: 1; }
 </style></head>
 <body><header>
-<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">polibrief</span></a>
+<a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
 <nav><a href="/">Home</a><a href="/items">Items</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/logs">Logs</a></nav>
 </header>
 <script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
@@ -321,7 +330,9 @@ ${topics}
 function settingsSection(watchlist, openId) {
   const ed = watchlist?.briefEditions ?? {};
   const out = watchlist?.output ?? {};
-  const teamsConfigured = Boolean(process.env.TEAMS_WEBHOOK_URL);
+  const emailTo = process.env.BRIEF_EMAIL_TO;
+  const emailConfigured = Boolean(process.env.SMTP_HOST && emailTo);
+  const emailOn = out.email === true;
   return `
 <details class="topic" id="t-settings"${openId === "settings" ? " open" : ""}>
   <summary>⚙️ Settings <span class="muted">(schedule, thresholds, Teams)</span></summary>
@@ -347,9 +358,14 @@ function settingsSection(watchlist, openId) {
     </div>
     <div class="toolbar"><button>Save settings</button></div>
   </form>
-  <div class="kicker">Microsoft Teams delivery</div>
-  <p class="muted">${teamsConfigured ? "Webhook configured in .env." : "Not configured — add TEAMS_WEBHOOK_URL to the .env file in the app's data folder, then restart the app."}</p>
-  <form method="post" action="/teams/test"><button class="ghost"${teamsConfigured ? "" : " disabled"}>Send a test card to Teams</button></form>
+  <div class="kicker">Email delivery</div>
+  <p class="muted">${
+    emailConfigured
+      ? `Briefs email to <strong>${esc(emailTo)}</strong> via ${esc(process.env.SMTP_HOST)}${
+          emailOn ? "." : " — but email delivery is currently <strong>off</strong> in the watchlist (set output.email to true, then restart)."
+        }`
+      : "Not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS and BRIEF_EMAIL_TO in the .env file, enable email in the watchlist, then restart the app."
+  }</p>
   <div class="kicker">Security</div>
   <p class="muted">${process.env.POLIBRIEF_PASSWORD ? "Password protection is ON." : "No password set. To require one, add POLIBRIEF_PASSWORD=yourpassword to .env and restart (fine to skip on a Tailscale-only network)."}</p>
 </details>`;
@@ -455,9 +471,15 @@ function itemsBody(params, notice) {
         .join("")}</ul><p class="muted">New activity on tracked items gets a 📌 section at the top of every brief.</p>`
     : "";
 
+  const summarizedSet = store.summarizedUids();
   const itemRows = rows
     .map((r) => {
       const isTracked = trackedKeys.has(r.uid);
+      const hasSummary = summarizedSet.has(r.uid);
+      const summaryPanel = `<details class="summary" data-uid="${esc(r.uid)}">
+        <summary>🧠 AI summary${hasSummary ? ' <span class="muted">· ready</span>' : ""}</summary>
+        <div class="sumbody"><span class="muted">Open to generate a ≤500-word summary of the linked document and why it matters.</span></div>
+      </details>`;
       const trackBtn = `<form method="post" action="/items/track">
         <input type="hidden" name="uid" value="${esc(r.uid)}"><input type="hidden" name="on" value="${isTracked ? "false" : "true"}">
         <input type="hidden" name="back" value="${esc(back)}">
@@ -468,7 +490,8 @@ function itemsBody(params, notice) {
         <button class="ghost tiny fb${r.feedback === val ? " on" : ""}" title="${val === "up" ? "Good catch — more like this" : "Not relevant — fewer like this"}">${emoji}</button></form>`;
       return `<tr>
         <td><a href="${esc(r.url ?? "#")}" target="_blank" rel="noopener">${esc((r.title ?? r.uid).slice(0, 110))}</a>
-          ${r.one_line ? `<br><span class="muted">${esc(r.one_line)}</span>` : ""}</td>
+          ${r.one_line ? `<br><span class="muted">${esc(r.one_line)}</span>` : ""}
+          ${summaryPanel}</td>
         <td class="muted">${esc(r.jurisdiction ?? "")}<br>${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}</td>
         <td class="muted">${esc(r.triage_verdict ?? "")}</td>
         <td><div class="toolbar" style="margin:0">${trackBtn}${fb("up", "👍")}${fb("down", "👎")}</div></td>
@@ -496,7 +519,28 @@ ${trackedBlock}
 <table class="items">
   <tr><th>Item</th><th>Where / when</th><th>Verdict</th><th>Actions</th></tr>
   ${itemRows || '<tr><td colspan="4" class="muted">Nothing matches these filters.</td></tr>'}
-</table>`;
+</table>
+<script>
+document.querySelectorAll('details.summary').forEach(function(d){
+  d.addEventListener('toggle', function(){
+    if(!d.open || d.dataset.loaded) return;
+    d.dataset.loaded='1';
+    var body=d.querySelector('.sumbody');
+    body.innerHTML='<span class="muted">Generating summary… this can take ~10 seconds.</span>';
+    fetch('/items/summary',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:'uid='+encodeURIComponent(d.dataset.uid)})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(j.ok){
+          body.innerHTML=j.html+'<p class="summeta">'+(j.cached?'cached':'generated')+' · '+j.model+(j.expiresAt?(' · cached until '+j.expiresAt):'')+'</p>';
+        } else {
+          body.innerHTML='<span class="muted">⚠️ '+(j.error||'Could not summarize this item.')+'</span>';
+          d.dataset.loaded='';
+        }
+      })
+      .catch(function(e){ body.innerHTML='<span class="muted">⚠️ '+e+'</span>'; d.dataset.loaded=''; });
+  });
+});
+</script>`;
 }
 
 // ---------- search page ----------
@@ -645,13 +689,13 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       // ----- pages -----
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("polibrief", homeBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
+        res.end(page("The Bean Brief", homeBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/items") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("polibrief · items", itemsBody(url.searchParams, url.searchParams.get("notice"))));
+        res.end(page("The Bean Brief · items", itemsBody(url.searchParams, url.searchParams.get("notice"))));
         return;
       }
 
@@ -667,26 +711,26 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           }
         }
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("polibrief · search", searchBody(q, result, error)));
+        res.end(page("The Bean Brief · search", searchBody(q, result, error)));
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/logs") {
         const body = `<h2>Recent activity</h2><pre class="logs">${esc(logBuffer.slice(-300).join("\n") || "(nothing yet)")}</pre>`;
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("polibrief · logs", body));
+        res.end(page("The Bean Brief · logs", body));
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/watchlist") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("polibrief · watchlist", watchlistBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
+        res.end(page("The Bean Brief · watchlist", watchlistBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/sources") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("polibrief · sources", sourcesBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
+        res.end(page("The Bean Brief · sources", sourcesBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
         return;
       }
 
@@ -761,6 +805,40 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           if (problem) console.log(`⚠️  ${problem}`);
         });
         redirect(res, `/?notice=${encodeURIComponent(`${edition.toUpperCase()} run started — refresh in a minute or two. Problems will appear in a red banner here.`)}`);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/items/summary") {
+        const form = await readForm(req);
+        const uid = form.get("uid") ?? "";
+        res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+        try {
+          const item = store.getItemByUid(uid);
+          if (!item) {
+            res.end(JSON.stringify({ ok: false, error: "Item not found." }));
+            return;
+          }
+          let cached = store.getSummary(uid);
+          const fromCache = Boolean(cached);
+          if (!cached) {
+            const { summary, model } = await summarizeItem(item, process.env);
+            if (!summary) throw new Error("The model returned an empty summary.");
+            const expiresAt = summaryExpiry(item);
+            store.saveSummary(uid, summary, model, expiresAt);
+            cached = { summary, model, expires_at: expiresAt };
+          }
+          res.end(
+            JSON.stringify({
+              ok: true,
+              cached: fromCache,
+              model: cached.model,
+              expiresAt: cached.expires_at ? String(cached.expires_at).slice(0, 10) : null,
+              html: markdownToHtml(cached.summary),
+            })
+          );
+        } catch (err) {
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
         return;
       }
 

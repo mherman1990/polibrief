@@ -84,6 +84,19 @@ for (const columnDef of [
   }
 }
 
+// Cached on-demand AI document summaries (web UI "AI summary" panel). Cached until
+// the item's comment deadline (the document doesn't change before then), or a
+// default window — see summarize.summaryExpiry.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS item_summaries (
+    uid        TEXT PRIMARY KEY,
+    summary    TEXT NOT NULL,
+    model      TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT
+  );
+`);
+
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,
@@ -226,6 +239,52 @@ export function searchSeenItems(term, limit = 30) {
         ORDER BY first_seen_at DESC LIMIT ?`
     )
     .all(like, like, limit);
+}
+
+// ---------------------------------------------------------------------------
+// On-demand AI summaries (web UI "AI summary" panel)
+
+/** Full stored row for one item, for the summarizer. */
+export function getItemByUid(uid) {
+  return db
+    .prepare(
+      `SELECT uid, source_id, title, url, jurisdiction, one_line, triage_topics,
+              comment_deadline, doc_type, published_at
+         FROM seen_items WHERE uid = ?`
+    )
+    .get(uid);
+}
+
+/** A cached, non-expired AI summary for an item, or undefined. */
+export function getSummary(uid) {
+  const row = db
+    .prepare("SELECT uid, summary, model, created_at, expires_at FROM item_summaries WHERE uid = ?")
+    .get(uid);
+  if (!row) return undefined;
+  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) return undefined;
+  return row;
+}
+
+/** Store (or replace) an AI summary with an expiry timestamp. */
+export function saveSummary(uid, summary, model, expiresAt = null) {
+  db.prepare(
+    `INSERT INTO item_summaries (uid, summary, model, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(uid) DO UPDATE SET
+       summary = excluded.summary, model = excluded.model,
+       created_at = excluded.created_at, expires_at = excluded.expires_at`
+  ).run(uid, summary, model ?? null, new Date().toISOString(), expiresAt);
+}
+
+/** Set of item uids that currently have a cached, non-expired summary. */
+export function summarizedUids() {
+  const now = new Date().toISOString();
+  return new Set(
+    db
+      .prepare("SELECT uid FROM item_summaries WHERE expires_at IS NULL OR expires_at > ?")
+      .all(now)
+      .map((r) => r.uid)
+  );
 }
 
 // ---------------------------------------------------------------------------
