@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1 — packaging fix
+
+- **Fix:** include `registry.json` (and `scripts/`) in the Docker image — they were
+  missing from the Dockerfile `COPY`, so on the Pi the registry seed file never reached
+  `/data` and the registry synced empty. No code changes.
+
 ## 1.3.0 — v2 foundation (Entity Registry · entity collection · two-render brief)
 
 Additive extension of the v1 pipeline — the existing collect → score → triage →

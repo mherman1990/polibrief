@@ -19,7 +19,8 @@ RUN apt-get update \
 
 # App code + default config (the live watchlist/.env are seeded into /data on first boot).
 COPY src ./src
-COPY watchlist.json .env.example ./
+COPY scripts ./scripts
+COPY watchlist.json registry.json .env.example ./
 
 # All mutable data (SQLite DB, briefings, editable watchlist + .env) lives on the volume.
 ENV POLIBRIEF_DATA_DIR=/data
