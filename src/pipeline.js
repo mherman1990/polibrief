@@ -12,7 +12,7 @@ import { scoreItems } from "./score.js";
 import { triageItems } from "./triage.js";
 import { generateBrief } from "./brief.js";
 import { saveBrief, postToTeams, sendEmail, sendFarmerEmail } from "./deliver.js";
-import { adapters } from "./adapters/index.js";
+import { adapters, classOf } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 
 /** The live watchlist file: the data-volume copy in Docker/Umbrel, else the project one. */
@@ -142,9 +142,22 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     commit: !dryRun,
   });
 
+  // 1b. Split by information class. Only "official" (regulatory/legal) sources feed the
+  // policy pipeline (score → triage → brief). "news" (collector/press) and "markets"
+  // (demand data) items are stored for their own tabs but NEVER enter the policy brief —
+  // that's what keeps the Items/brief flow clean even when they hit a policy keyword
+  // (e.g. EIA "soybean oil → biodiesel" would otherwise match the biofuels area).
+  const officialItems = [];
+  const sideItems = [];
+  for (const it of items) (classOf(it.sourceId) === "official" ? officialItems : sideItems).push(it);
+  if (!dryRun && sideItems.length) {
+    for (const it of sideItems) store.markSeen(it, null);
+    console.log(`🗂️  Stored ${sideItems.length} news/markets item${sideItems.length === 1 ? "" : "s"} for their tabs (kept out of the brief).`);
+  }
+
   // 2. Local scoring — free, runs before Claude sees anything.
-  console.log(`\n🔎 Scoring ${items.length} new item${items.length === 1 ? "" : "s"}…`);
-  const { kept, dropped } = scoreItems(items, watchlist.topics ?? [], watchlist.output);
+  console.log(`\n🔎 Scoring ${officialItems.length} new item${officialItems.length === 1 ? "" : "s"}…`);
+  const { kept, dropped } = scoreItems(officialItems, watchlist.topics ?? [], watchlist.output);
   console.log(`   ${kept.length} pass the local filter (min score ${watchlist.output?.minLocalScoreForTriage ?? 5})`);
 
   if (dryRun) {
@@ -156,7 +169,7 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     return { dryRun: true, kept, skippedSources };
   }
 
-  return runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount });
+  return runFullPipeline({ watchlist, env, edition, kept, items: officialItems, skippedSources, fetchedCount });
 }
 
 // Rough list prices per 1M tokens, for the audit cost estimate only.

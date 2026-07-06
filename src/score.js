@@ -51,7 +51,9 @@ export function scoreItems(items, topics, output) {
     // Registry-sourced items (rss/email-intake) are curated by definition — boost
     // them so a tracked entity's post clears the local filter even when it doesn't
     // hit a topic keyword. Keyword hits still stack on top for ranking.
-    if (item.raw?.entityId) score += entityBoost;
+    // Exception: broad news publishers (email_intake sets raw.suppressEntityBoost) are
+    // attributed for labeling but must earn their way in on relevance, not auto-clear.
+    if (item.raw?.entityId && !item.raw?.suppressEntityBoost) score += entityBoost;
     return { ...item, localScore: score, matchedTopics };
   });
 

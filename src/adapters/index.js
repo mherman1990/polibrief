@@ -25,6 +25,10 @@ import * as regulations_gov from "./regulations_gov.js";
 import * as courtlistener from "./courtlistener.js";
 import * as rss from "./rss.js";
 import * as email_intake from "./email_intake.js";
+import * as usda_nass from "./usda_nass.js";
+import * as eia from "./eia.js";
+import * as cftc from "./cftc.js";
+import * as open_meteo from "./open_meteo.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -37,4 +41,36 @@ export const adapters = {
   // v2 entity-driven sources (registry channels / collector inbox, not topic queries):
   [rss.id]: rss,
   [email_intake.id]: email_intake,
+  // demand-side (Markets tab): market data, not topic queries:
+  [usda_nass.id]: usda_nass,
+  [eia.id]: eia,
+  [cftc.id]: cftc,
+  [open_meteo.id]: open_meteo,
 };
+
+// Information CLASS per source — decides which portal tab an item surfaces on, and
+// keeps the newsletter/market firehose out of the clean regulatory flow:
+//   official = rules, bills, dockets, court, admin rules → Items tab + the policy brief
+//   news     = collector newsletters + legislator press  → News tab + daily digest (NOT the policy brief)
+//   markets  = demand-side data (exports, supply, biofuel feedstock) → Markets tab (NOT the policy brief)
+// Sources default to "official" if unlisted.
+export const SOURCE_CLASS = {
+  federal_register: "official",
+  congress_gov: "official",
+  legiscan: "official",
+  eurlex_oj: "official",
+  iowa_admin_rules: "official",
+  regulations_gov: "official",
+  courtlistener: "official",
+  rss: "news",
+  email_intake: "news",
+  // demand-side → "markets"
+  fas_export_sales: "markets",
+  usda_nass: "markets",
+  eia: "markets",
+  cftc: "markets",
+  usda_ams: "markets",
+  open_meteo: "markets",
+};
+export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
+export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);

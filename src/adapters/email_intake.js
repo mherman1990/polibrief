@@ -13,6 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { resolveEntity } from "../registry.js";
+import { getEntity } from "../store.js";
 // imapflow + mailparser are lazy-imported inside fetchItems (like nodemailer in
 // deliver.js) so a missing optional dep never breaks the whole adapter registry —
 // it only matters once email-intake is actually enabled.
@@ -63,6 +64,11 @@ export async function fetchItems({ sinceISO, sourceConfig = {}, env = process.en
       // Prefer the plus-tagged recipient (our per-list subscription address).
       const taggedTo = toAddrs.find((a) => a.split("@")[0].includes("+")) ?? toAddrs[0] ?? user;
       const resolved = resolveEntity({ toAddress: taggedTo, fromAddress: from });
+      // Broad publishers (farmdoc, Punchbowl, POLITICO…) are registered so we can attribute
+      // + label them, but they must NOT get the blanket entity score boost — otherwise every
+      // off-topic issue floods the brief. They surface only on a Focus-Area keyword hit.
+      // Narrow, on-topic sources (RFA, Growth Energy, Struyk) keep the boost.
+      const suppressEntityBoost = resolved?.entityId ? getEntity(resolved.entityId)?.type === "news_broad" : false;
       const messageId = parsed.messageId || `${msg.uid}`;
       const body = (parsed.text || parsed.html?.replace(/<[^>]+>/g, " ") || "").replace(/\s+/g, " ").trim();
 
@@ -78,6 +84,7 @@ export async function fetchItems({ sinceISO, sourceConfig = {}, env = process.en
         docType: "email",
         raw: {
           entityId: resolved?.entityId ?? null,
+          suppressEntityBoost,
           resolvedVia: resolved?.via ?? null,
           resolveConfidence: resolved?.confidence ?? null,
           fromAddress: from,

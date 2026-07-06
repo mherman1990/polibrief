@@ -21,7 +21,7 @@ import path from "node:path";
 
 import * as store from "./store.js";
 import { runPipeline, runWeekly, answerQuery, loadWatchlist, saveWatchlist } from "./pipeline.js";
-import { adapters } from "./adapters/index.js";
+import { adapters, sourceIdsForClass } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
 import { summarizeItem, summaryExpiry } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
@@ -162,7 +162,7 @@ function page(title, body) {
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
-<nav><a href="/">Home</a><a href="/items">Items</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs</a></nav>
+<nav><a href="/">Home</a><a href="/items">Items</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs</a></nav>
 </header>
 <script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
 ${body}
@@ -522,6 +522,38 @@ function watchlistBody(notice, openId) {
 }
 
 // ---------- items page ----------
+// A light headline feed shared by the News and Markets tabs (no triage/track controls —
+// this is a "what's flowing in" reading surface, kept separate from the Items workflow).
+function feedRows(cls, emptyMsg) {
+  const rows = store.listItems({ verdict: "", sourceIds: sourceIdsForClass(cls), days: 21, limit: 150 });
+  if (!rows.length) return `<p class="muted">${emptyMsg}</p>`;
+  return rows
+    .map((r) => {
+      const src = adapters[r.source_id]?.label ?? r.source_id;
+      const when = (r.first_seen_at || "").slice(0, 10);
+      return `<article style="padding:10px 0;border-bottom:1px solid var(--isa-blue-40)">
+        <a href="${esc(r.url || "#")}" target="_blank" rel="noopener"><strong>${esc(r.title || "(untitled)")}</strong></a>
+        <div class="muted" style="font-size:.85em">${esc(src)} · ${esc(when)}</div>
+        ${r.one_line ? `<div>${esc(r.one_line)}</div>` : ""}
+      </article>`;
+    })
+    .join("");
+}
+
+function newsBody() {
+  return `<h1>📰 News</h1>
+    <p class="muted">Newsletters &amp; press from the collector inbox — deliberately kept out of the regulatory
+    <a href="/items">Items</a> feed. A daily AI “News of the Day” digest will land at the top here.</p>
+    ${feedRows("news", "No news items yet — they appear once the pipeline runs with the collector (email_intake) enabled on the Pi.")}`;
+}
+
+function marketsBody() {
+  return `<h1>📈 Markets &amp; Demand</h1>
+    <p class="muted">Demand-side signals — exports (USDA FAS), supply &amp; price (USDA NASS), biofuel feedstock (EIA).
+    Series and notable-move flags will surface here.</p>
+    ${feedRows("markets", "No markets data yet — add the free USDA/EIA API keys and the demand adapters will populate this tab.")}`;
+}
+
 function itemsBody(params, notice) {
   let watchlist = null;
   try {
@@ -536,14 +568,18 @@ function itemsBody(params, notice) {
     verdict: params.get("verdict") ?? "relevant",
     days: Number(params.get("days") ?? 30) || 30,
   };
-  const rows = store.listItems({ ...filters, limit: 200 });
+  // Items tab = the clean regulatory/legal flow only. News (collector/press) and Markets
+  // (demand data) live on their own tabs so they don't dilute this feed.
+  const rows = store.listItems({ ...filters, sourceIds: sourceIdsForClass("official"), limit: 200 });
   const trackedKeys = new Set(store.listTracked().map((t) => t.uid));
   const back = `/items?${params.toString()}`;
 
   const topicOptions = (watchlist?.topics ?? [])
     .map((t) => `<option value="${esc(t.id)}"${filters.topicId === t.id ? " selected" : ""}>${esc(t.label)}</option>`)
     .join("");
+  const officialIds = new Set(sourceIdsForClass("official"));
   const sourceOptions = Object.values(adapters)
+    .filter((a) => officialIds.has(a.id))
     .map((a) => `<option value="${esc(a.id)}"${filters.sourceId === a.id ? " selected" : ""}>${esc(a.label)}</option>`)
     .join("");
 
@@ -791,6 +827,18 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "GET" && url.pathname === "/items") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page("The Bean Brief · items", itemsBody(url.searchParams, url.searchParams.get("notice"))));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/news") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · news", newsBody()));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/markets") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page("The Bean Brief · markets", marketsBody()));
         return;
       }
 

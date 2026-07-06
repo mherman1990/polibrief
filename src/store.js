@@ -356,7 +356,7 @@ export function summarizedUids() {
  * Filterable listing of stored items for the /items page.
  * filters: { q, topicId, sourceId, verdict, days, limit }
  */
-export function listItems({ q = "", topicId = "", sourceId = "", verdict = "", days = 30, limit = 200 } = {}) {
+export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = null, verdict = "", days = 30, limit = 200 } = {}) {
   const clauses = ["first_seen_at >= ?"];
   const params = [new Date(Date.now() - days * 86400e3).toISOString()];
   if (q) {
@@ -370,6 +370,11 @@ export function listItems({ q = "", topicId = "", sourceId = "", verdict = "", d
   if (sourceId) {
     clauses.push("source_id = ?");
     params.push(sourceId);
+  }
+  // Restrict to a set of sources (used to scope the Items/News/Markets tabs by class).
+  if (sourceIds && sourceIds.length) {
+    clauses.push(`source_id IN (${sourceIds.map(() => "?").join(",")})`);
+    params.push(...sourceIds);
   }
   if (verdict) {
     clauses.push("triage_verdict = ?");

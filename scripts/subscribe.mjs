@@ -47,6 +47,56 @@ if (mode === "targets") {
   process.exit(0);
 }
 
+if (mode === "inbox") {
+  // Quick look at what's actually landing in the collector: time | plus-tag | sender domain | subject.
+  // Verifies subscriptions/forwards are arriving and shows the tag each is attributed by.
+  const user = process.env.EMAIL_INTAKE_USER;
+  const pass = process.env.EMAIL_INTAKE_PASS;
+  if (!user || !pass) {
+    console.error("EMAIL_INTAKE_USER/EMAIL_INTAKE_PASS not set. Gmail needs a 16-char App Password (2FA on).");
+    process.exit(1);
+  }
+  const hoursArg = process.argv.find((a) => /^--hours=/.test(a));
+  const hours = hoursArg ? Number(hoursArg.split("=")[1]) : 48;
+  const { ImapFlow } = await import("imapflow");
+  const { simpleParser } = await import("mailparser");
+  const host = process.env.EMAIL_INTAKE_HOST || "imap.gmail.com";
+  const port = Number(process.env.EMAIL_INTAKE_PORT || 993);
+  const client = new ImapFlow({ host, port, secure: true, auth: { user, pass }, logger: false });
+  await client.connect();
+  const lock = await client.getMailboxLock("INBOX");
+  const rows = [];
+  try {
+    const since = new Date(Date.now() - hours * 3600e3);
+    const uids = await client.search({ since }, { uid: true });
+    for await (const msg of client.fetch(uids ?? [], { uid: true, source: true }, { uid: true })) {
+      let p;
+      try {
+        p = await simpleParser(msg.source);
+      } catch {
+        continue;
+      }
+      const to = (p.to?.value ?? []).map((v) => v.address || "");
+      const tag = (to.map((a) => (a.match(/\+([^@]+)@/) || [])[1]).find(Boolean) || "(bare/none)").toLowerCase();
+      const from = (p.from?.value?.[0]?.address || "").split("@")[1] || "";
+      rows.push({
+        when: p.date ? p.date.toISOString().slice(5, 16).replace("T", " ") : "--",
+        tag,
+        from,
+        subj: (p.subject || "").slice(0, 60),
+      });
+    }
+  } finally {
+    lock.release();
+    await client.logout().catch(() => {});
+  }
+  rows.sort((a, b) => a.when.localeCompare(b.when));
+  console.log(`\nCollector inbox — last ${hours}h (${rows.length} msgs):\n`);
+  console.log("WHEN".padEnd(12), "TAG".padEnd(16), "FROM".padEnd(26), "SUBJECT");
+  for (const r of rows) console.log(r.when.padEnd(12), r.tag.padEnd(16), r.from.padEnd(26), r.subj);
+  process.exit(0);
+}
+
 if (mode === "confirm") {
   const user = process.env.EMAIL_INTAKE_USER;
   const pass = process.env.EMAIL_INTAKE_PASS;

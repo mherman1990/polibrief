@@ -65,6 +65,26 @@
       "maxItemsPerRun": 100,
       "mailbox": "INBOX",
       "_note": "Enable after setting EMAIL_INTAKE_PASS to a Gmail App Password (2FA required)."
+    },
+    "usda_nass": {
+      "enabled": true,
+      "maxItemsPerRun": 10,
+      "_note": "Markets tab — USDA NASS soybean supply/price. Free key NASS_API_KEY."
+    },
+    "eia": {
+      "enabled": true,
+      "maxItemsPerRun": 10,
+      "_note": "Markets tab — EIA biofuel feedstock (soy oil → biodiesel/renewable diesel) + diesel. Free key EIA_API_KEY."
+    },
+    "cftc": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets tab — CFTC managed-money fund positioning (CBOT soybeans). No key."
+    },
+    "open_meteo": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets tab — Open-Meteo S. American soybean-region weather stress. No key."
     }
   },
   "focusAreas": [

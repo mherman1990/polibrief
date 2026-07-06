@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.4.0 — Markets tab + demand pipeline · News/Items split
+
+Big feature release. The portal is now organized into four tabs by *information class*,
+and a new demand-side data pipeline feeds a Markets tab.
+
+### Added
+- **Four-tab portal.** A per-source class (official / news / markets) routes each item:
+  - **Items** — regulatory/legal only (Federal Register, bills, dockets, court, admin rules): the clean flow.
+  - **News** — collector newsletters + legislator press (kept out of the policy brief).
+  - **Markets** — demand-side data (below).
+- **Markets / demand pipeline — 4 new free sources:** `usda_nass` (Iowa price, US production/stocks),
+  `eia` (soybean-oil → biodiesel/renewable-diesel feedstock + diesel price), `cftc` (managed-money
+  fund positioning), `open_meteo` (S. American soybean-region weather stress).
+- **News-source registry** — farmdoc, Punchbowl, POLITICO, RFA, Growth Energy, Brownfield,
+  Agri-Pulse, Carney Appleby, Torrey — with a narrow/broad boost split so broad publishers
+  surface on relevance rather than automatically.
+- `scripts/subscribe.mjs inbox` — see what's landing in the collector, by tag.
+
+### Changed
+- **News + Markets items never enter the policy brief** — partitioned by class right after
+  collection, so a market item that matches a policy keyword ("soybean oil → biodiesel") no
+  longer leaks into the brief.
+
+### Keys (all free; add to `/data/.env`)
+- `NASS_API_KEY`, `EIA_API_KEY` light up NASS/EIA now; `USDA_AMS_API_KEY` (basis) and `FAS_API_KEY`
+  (export sales) enable those when added. CFTC + Open-Meteo need none.
+
 ## 1.3.1 — packaging fix
 
 - **Fix:** include `registry.json` (and `scripts/`) in the Docker image — they were
