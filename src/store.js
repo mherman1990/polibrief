@@ -153,6 +153,52 @@ db.exec(`
   );
 `);
 
+// ---------- market timeseries (v1.5 Markets charts + CSV) ----------
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_series (
+    series TEXT NOT NULL,       -- e.g. "eia:feedstock:soybean-oil"
+    period TEXT NOT NULL,       -- "YYYY-MM" or "YYYY-MM-DD"
+    value  REAL,
+    PRIMARY KEY (series, period)
+  );
+  CREATE TABLE IF NOT EXISTS market_series_meta (
+    series     TEXT PRIMARY KEY,
+    label      TEXT,
+    unit       TEXT,
+    category   TEXT,            -- groups series into one chart (e.g. "biofuel_feedstock")
+    updated_at TEXT
+  );
+`);
+
+const stmtUpsertSeriesPoint = db.prepare(
+  `INSERT INTO market_series (series, period, value) VALUES (?, ?, ?)
+     ON CONFLICT(series, period) DO UPDATE SET value = excluded.value`
+);
+const stmtUpsertSeriesMeta = db.prepare(
+  `INSERT INTO market_series_meta (series, label, unit, category, updated_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(series) DO UPDATE SET label=excluded.label, unit=excluded.unit, category=excluded.category, updated_at=excluded.updated_at`
+);
+/** Upsert a whole timeseries (idempotent — safe to re-refresh each run). */
+export function saveSeriesPoints(series, meta, points) {
+  const run = db.transaction(() => {
+    stmtUpsertSeriesMeta.run(series, meta.label ?? series, meta.unit ?? "", meta.category ?? "", new Date().toISOString());
+    for (const p of points ?? []) {
+      if (p && p.period != null && p.value != null && !Number.isNaN(Number(p.value))) {
+        stmtUpsertSeriesPoint.run(series, String(p.period), Number(p.value));
+      }
+    }
+  });
+  run();
+}
+export function getSeries(series) {
+  return db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(series);
+}
+export function listSeriesMeta(category = null) {
+  return category
+    ? db.prepare("SELECT * FROM market_series_meta WHERE category = ? ORDER BY label").all(category)
+    : db.prepare("SELECT * FROM market_series_meta ORDER BY category, label").all();
+}
+
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,

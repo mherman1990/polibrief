@@ -552,11 +552,47 @@ function newsBody() {
     ${feedRows("news", "No news items yet — they appear once the pipeline runs with the collector (email_intake) enabled on the Pi.")}`;
 }
 
+// Dependency-light stacked-area chart (inline SVG) — shows each series' share of the total
+// over time. seriesList: [{ label, unit, points:[{period,value}] }].
+const CHART_COLORS = ["#004A8D", "#FFC425", "#0070C3", "#e07a2c", "#6aa84f", "#9AB8D2", "#c0392b", "#8e7cc3", "#A5C6E3"];
+function stackedAreaSVG(seriesList, { width = 700, height = 300, months = 72 } = {}) {
+  const W = width, H = height, padL = 46, padB = 26, padT = 10, padR = 10;
+  let periods = [...new Set(seriesList.flatMap((s) => s.points.map((p) => p.period)))].sort().slice(-months);
+  const n = periods.length;
+  if (n < 2) return '<p class="muted">Not enough history yet.</p>';
+  const vals = seriesList.map((s) => { const m = new Map(s.points.map((p) => [p.period, p.value])); return periods.map((p) => Number(m.get(p) ?? 0)); });
+  const cum = new Array(n).fill(0);
+  const bands = vals.map((row) => { const bottom = cum.slice(); for (let i = 0; i < n; i++) cum[i] += row[i]; return { bottom, top: cum.slice() }; });
+  const maxY = Math.max(...cum, 1);
+  const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
+  const y = (v) => H - padB - (v / maxY) * (H - padB - padT);
+  const polys = bands.map((b, si) => {
+    const top = periods.map((_, i) => `${x(i).toFixed(1)},${y(b.top[i]).toFixed(1)}`).join(" ");
+    const bot = periods.map((_, i) => `${x(i).toFixed(1)},${y(b.bottom[i]).toFixed(1)}`).reverse().join(" ");
+    return `<polygon points="${top} ${bot}" fill="${CHART_COLORS[si % CHART_COLORS.length]}" fill-opacity="0.9" stroke="#fff" stroke-width="0.4"/>`;
+  }).join("");
+  const axis = `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#ccc"/>` +
+    `<text x="${padL}" y="${H - 8}" font-size="10" fill="#666">${esc(periods[0])}</text>` +
+    `<text x="${W - padR}" y="${H - 8}" font-size="10" fill="#666" text-anchor="end">${esc(periods[n - 1])}</text>` +
+    `<text x="4" y="${padT + 8}" font-size="10" fill="#666">${Math.round(maxY).toLocaleString()}</text>`;
+  const legend = seriesList.map((s, si) => `<span style="display:inline-block;margin:2px 10px 2px 0;font-size:.8em"><span style="display:inline-block;width:11px;height:11px;background:${CHART_COLORS[si % CHART_COLORS.length]};border-radius:2px;vertical-align:middle"></span> ${esc(s.label)}</span>`).join("");
+  const unit = seriesList[0]?.unit || "";
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;height:auto" role="img"><rect width="${W}" height="${H}" fill="#fff"/>${polys}${axis}</svg>
+    <div class="muted" style="font-size:.75em">units: ${esc(unit)}/month</div><div style="margin-top:4px">${legend}</div>`;
+}
+
 function marketsBody() {
+  const feedstock = store.listSeriesMeta("biofuel_feedstock").map((m) => ({ label: m.label, unit: m.unit, points: store.getSeries(m.series) }));
+  const chart = feedstock.length
+    ? `<h2 style="margin-bottom:2px">Biofuel feedstock market share
+         <a class="ghost tiny" href="/markets/csv?category=biofuel_feedstock" style="font-size:.65em;vertical-align:middle">⬇ CSV</a></h2>
+       <p class="muted" style="margin-top:0">Lipid feedstocks consumed by U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…).</p>
+       ${stackedAreaSVG(feedstock)}`
+    : `<p class="muted">Feedstock chart populates after a run (or <code>market-refresh</code>) with the EIA key set.</p>`;
   return `<h1>📈 Markets &amp; Demand</h1>
-    <p class="muted">Demand-side signals — exports (USDA FAS), supply &amp; price (USDA NASS), biofuel feedstock (EIA).
-    Series and notable-move flags will surface here.</p>
-    ${feedRows("markets", "No markets data yet — add the free USDA/EIA API keys and the demand adapters will populate this tab.")}`;
+    ${chart}
+    <h2 style="margin-top:22px">Latest data points</h2>
+    ${feedRows("markets", "No markets data yet — set the USDA/EIA API keys and the demand adapters populate this tab.")}`;
 }
 
 function itemsBody(params, notice) {
@@ -864,6 +900,22 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "GET" && url.pathname === "/markets") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page("The Bean Brief · markets", marketsBody()));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/markets/csv") {
+        const category = url.searchParams.get("category");
+        const series = url.searchParams.get("series");
+        const metas = series ? store.listSeriesMeta().filter((m) => m.series === series) : store.listSeriesMeta(category);
+        const cols = metas.map((m) => ({ label: m.label, points: store.getSeries(m.series) }));
+        const periods = [...new Set(cols.flatMap((c) => c.points.map((p) => p.period)))].sort();
+        const lookup = cols.map((c) => new Map(c.points.map((p) => [p.period, p.value])));
+        const csvEsc = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+        const header = ["period", ...cols.map((c) => csvEsc(c.label))].join(",");
+        const lines = periods.map((p) => [p, ...lookup.map((m) => (m.has(p) ? m.get(p) : ""))].join(","));
+        const fname = (category || series || "series").replace(/[^a-z0-9_-]/gi, "_");
+        res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${fname}.csv"` });
+        res.end([header, ...lines].join("\n"));
         return;
       }
 

@@ -86,6 +86,15 @@ program
   });
 
 program
+  .command("market-refresh")
+  .description("Refresh market timeseries (Markets charts) from adapters with fetchSeries")
+  .action(async () => {
+    const { refreshMarketSeries } = await import("./pipeline.js");
+    const n = await refreshMarketSeries(process.env);
+    console.log(`📈 Refreshed ${n} market series.`);
+  });
+
+program
   .command("registry-seed <source>")
   .description("Run one registry seeder: openstates | fec | socrata")
   .action(async (source) => {

@@ -68,3 +68,58 @@ export async function fetchItems({ sourceConfig = {}, env = process.env }) {
   }
   return items;
 }
+
+// ── Timeseries (v1.5 Markets charts) ────────────────────────────────────────
+// ALL lipid feedstocks consumed by the biodiesel + renewable-diesel industry — the
+// feedstock market-share picture (soy vs. its competitors). BD + RD summed per feedstock.
+const FEEDSTOCKS = [
+  { key: "soybean-oil", label: "Soybean oil", products: ["EPOOBDSO", "EPOOBDSOR"] },
+  { key: "corn-oil", label: "Corn oil (DCO)", products: ["EPOOBDCNO", "EPOOBDCNOR"] },
+  { key: "canola-oil", label: "Canola oil", products: ["EPOOBDCO", "EPOOBDCOR"] },
+  { key: "used-cooking-oil", label: "Used cooking oil", products: ["EPOOBDFSYG"] },
+  { key: "tallow", label: "Tallow", products: ["EPOOBDFSTL"] },
+  { key: "white-grease", label: "White grease", products: ["EPOOBDFSWG"] },
+  { key: "poultry-fat", label: "Poultry fat", products: ["EPOOBDFSPT"] },
+  { key: "other-animal-fat", label: "Other animal fats", products: ["EPOOBDAFO"] },
+  { key: "other-veg-oil", label: "Other veg oils", products: ["EPOOBDVOO"] },
+];
+
+async function productHistory(product, apiKey) {
+  const q =
+    `${BASE}/petroleum/pnp/feedbiofuel/data/?api_key=${apiKey}` +
+    `&frequency=monthly&data[0]=value&facets[product][]=${product}&facets[duoarea][]=NUS` +
+    `&sort[0][column]=period&sort[0][direction]=asc&length=300`;
+  const d = await fetchJSON(q);
+  const map = new Map();
+  let unit = "";
+  for (const r of d?.response?.data ?? []) {
+    if (r.value != null) {
+      map.set(r.period, Number(r.value));
+      unit = r.units || unit;
+    }
+  }
+  return { map, unit };
+}
+
+/** Returns [{ series, meta:{label,unit,category}, points:[{period,value}] }] for store.saveSeriesPoints. */
+export async function fetchSeries({ env = process.env } = {}) {
+  const apiKey = env.EIA_API_KEY;
+  if (!apiKey) return [];
+  const out = [];
+  for (const fs of FEEDSTOCKS) {
+    const merged = new Map();
+    let unit = "MMLB";
+    for (const product of fs.products) {
+      try {
+        const { map, unit: u } = await productHistory(product, apiKey);
+        if (u) unit = u;
+        for (const [period, val] of map) merged.set(period, (merged.get(period) ?? 0) + val);
+      } catch {
+        /* a missing product never kills the series */
+      }
+    }
+    const points = [...merged.entries()].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period));
+    if (points.length) out.push({ series: `eia:feedstock:${fs.key}`, meta: { label: fs.label, unit, category: "biofuel_feedstock" }, points });
+  }
+  return out;
+}

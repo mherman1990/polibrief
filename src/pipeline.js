@@ -119,6 +119,28 @@ function printScoredTable(kept, dropped) {
 }
 
 /** The whole show: fetch → score → (triage → brief → deliver unless dry run). */
+/**
+ * Refresh market timeseries (for the Markets charts) from every adapter that exposes a
+ * fetchSeries() — idempotent upsert into store.market_series. Fail-soft per adapter.
+ */
+export async function refreshMarketSeries(env = process.env) {
+  let seriesCount = 0;
+  for (const adapter of Object.values(adapters)) {
+    if (typeof adapter.fetchSeries !== "function") continue;
+    try {
+      const list = await adapter.fetchSeries({ env });
+      for (const s of list) {
+        store.saveSeriesPoints(s.series, s.meta, s.points);
+        seriesCount++;
+      }
+      if (list.length) console.log(`📈 ${adapter.label}: refreshed ${list.length} market series`);
+    } catch (err) {
+      console.log(`⚠️  ${adapter.label} series refresh failed: ${err.message}`);
+    }
+  }
+  return seriesCount;
+}
+
 export async function runPipeline({ edition = "am", dryRun = false, source = null, env = process.env }) {
   const watchlist = loadWatchlist();
 
@@ -154,6 +176,9 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     for (const it of sideItems) store.markSeen(it, null);
     console.log(`🗂️  Stored ${sideItems.length} news/markets item${sideItems.length === 1 ? "" : "s"} for their tabs (kept out of the brief).`);
   }
+
+  // 1c. Refresh market timeseries (Markets charts) from any adapter exposing fetchSeries.
+  if (!dryRun) await refreshMarketSeries(env);
 
   // 2. Local scoring — free, runs before Claude sees anything.
   console.log(`\n🔎 Scoring ${officialItems.length} new item${officialItems.length === 1 ? "" : "s"}…`);
