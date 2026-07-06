@@ -323,7 +323,8 @@ export function getSummary(uid) {
     .prepare("SELECT uid, summary, model, created_at, expires_at FROM item_summaries WHERE uid = ?")
     .get(uid);
   if (!row) return undefined;
-  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) return undefined;
+  // Summaries are permanent once generated: re-opening the panel always returns the
+  // stored summary (never a fresh AI call), and it survives version updates (DB is in /data).
   return row;
 }
 
@@ -340,13 +341,8 @@ export function saveSummary(uid, summary, model, expiresAt = null) {
 
 /** Set of item uids that currently have a cached, non-expired summary. */
 export function summarizedUids() {
-  const now = new Date().toISOString();
-  return new Set(
-    db
-      .prepare("SELECT uid FROM item_summaries WHERE expires_at IS NULL OR expires_at > ?")
-      .all(now)
-      .map((r) => r.uid)
-  );
+  // Any item that has a stored summary (permanent) — used to mark the 🧠 icon as "stored".
+  return new Set(db.prepare("SELECT uid FROM item_summaries").all().map((r) => r.uid));
 }
 
 // ---------------------------------------------------------------------------

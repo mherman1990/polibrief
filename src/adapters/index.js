@@ -29,6 +29,7 @@ import * as usda_nass from "./usda_nass.js";
 import * as eia from "./eia.js";
 import * as cftc from "./cftc.js";
 import * as open_meteo from "./open_meteo.js";
+import * as usda_ams from "./usda_ams.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -46,6 +47,7 @@ export const adapters = {
   [eia.id]: eia,
   [cftc.id]: cftc,
   [open_meteo.id]: open_meteo,
+  [usda_ams.id]: usda_ams,
 };
 
 // Information CLASS per source — decides which portal tab an item surfaces on, and

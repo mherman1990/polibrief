@@ -319,6 +319,57 @@
       "level": "national",
       "notes": "DC food/ag/trade advisory — narrow/high-signal → KEEP boost. Forwarded (redirect) to beanbrief+torrey@. Sender domain (torreyadvisory.com?) auto-confirms from the first arrival via `subscribe.mjs inbox`.",
       "channels": [{ "kind": "newsletter_email", "url_or_handle": "torreyadvisory.com", "org_id": "torrey" }]
+    },
+
+    {
+      "id": "feed-cftc", "type": "news_source", "full_name": "CFTC (press releases)", "level": "national",
+      "notes": "Gov RSS → News tab. Verified live.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.cftc.gov/RSS/RSSGP/rssgp.xml" }]
+    },
+    {
+      "id": "feed-usda", "type": "news_source", "full_name": "USDA (press releases)", "level": "national",
+      "notes": "Gov RSS → News tab. Verify on Pi (Cloudflare-fronted).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.usda.gov/media/press-releases/rss.xml" }]
+    },
+    {
+      "id": "feed-epa", "type": "news_source", "full_name": "EPA (news releases)", "level": "national",
+      "notes": "Gov RSS → News tab (biofuels/pesticides). Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.epa.gov/newsreleases/search/rss" }]
+    },
+    {
+      "id": "feed-farmprogress", "type": "news_source", "full_name": "Farm Progress", "level": "national",
+      "notes": "Ag news RSS → News tab. Verified live.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.farmprogress.com/rss.xml" }]
+    },
+    {
+      "id": "feed-agripulse", "type": "news_source", "full_name": "Agri-Pulse (headlines)", "level": "national",
+      "notes": "Ag policy news RSS → News tab. Verified live.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.agri-pulse.com/rss/1-agriculture-news" }]
+    },
+    {
+      "id": "feed-asa", "type": "news_source", "full_name": "American Soybean Assn (news)", "level": "national",
+      "notes": "Advocacy RSS → News tab. WordPress /feed/, verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://soygrowers.com/feed/" }]
+    },
+    {
+      "id": "feed-rfa", "type": "news_source", "full_name": "Renewable Fuels Assn (news)", "level": "national",
+      "notes": "Biofuels advocacy RSS → News tab. Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://ethanolrfa.org/feed/" }]
+    },
+    {
+      "id": "feed-growth", "type": "news_source", "full_name": "Growth Energy (news)", "level": "national",
+      "notes": "Biofuels advocacy RSS → News tab. Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://growthenergy.org/feed/" }]
+    },
+    {
+      "id": "feed-cleanfuels", "type": "news_source", "full_name": "Clean Fuels Alliance (news)", "level": "national",
+      "notes": "Biodiesel/renewable-diesel advocacy RSS → News tab. Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://cleanfuels.org/feed/" }]
+    },
+    {
+      "id": "feed-iasoybean", "type": "news_source", "full_name": "Iowa Soybean Association (news)", "level": "state", "counties": ["*"],
+      "notes": "ISA's own news RSS → News tab. Verify on Pi.",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.iasoybeans.com/feed" }]
     }
   ]
 }

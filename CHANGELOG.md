@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.4.1 — LRD rename · in-place triage · AMS basis · RSS feeds
+
+### Added
+- **AMS basis adapter** (`usda_ams`) — Iowa state-average soybean cash price + **basis** on the Markets tab
+  (your "basis vs. the board at a glance"). Free key `USDA_AMS_API_KEY`.
+- **Ag-news RSS feeds** wired into the News pipeline: CFTC, USDA, EPA, Farm Progress, Agri-Pulse, ASA, RFA,
+  Growth Energy, Clean Fuels, Iowa Soybean.
+
+### Changed
+- **Items → "Laws, Rules & Decisions."**
+- **👍/👎 and 📌 track update in place** (AJAX) — the list no longer jumps to the top, so you can scroll
+  and triage continuously.
+- **AI summaries are permanent** — re-opening a panel returns the stored summary (no new AI call), and the
+  🧠 icon shows **✓ stored** once one exists (doubles as a "reviewed" marker). Survives version updates.
+- **All timestamps render in Central time.**
+
 ## 1.4.0 — Markets tab + demand pipeline · News/Items split
 
 Big feature release. The portal is now organized into four tabs by *information class*,

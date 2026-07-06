@@ -85,6 +85,11 @@
       "enabled": true,
       "maxItemsPerRun": 5,
       "_note": "Markets tab — Open-Meteo S. American soybean-region weather stress. No key."
+    },
+    "usda_ams": {
+      "enabled": true,
+      "maxItemsPerRun": 5,
+      "_note": "Markets tab — USDA AMS Iowa cash soybean price + basis (report 2850). Free key USDA_AMS_API_KEY."
     }
   },
   "focusAreas": [

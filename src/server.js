@@ -26,6 +26,11 @@ import { postToTeams } from "./deliver.js";
 import { summarizeItem, summaryExpiry } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
 
+// All user-facing timestamps render in Central time (the ISA org timezone).
+const CENTRAL_TZ = "America/Chicago";
+const fmtCT = (d) => new Date(d).toLocaleString("en-US", { timeZone: CENTRAL_TZ });
+const fmtCTtime = (d) => new Date(d).toLocaleTimeString("en-US", { timeZone: CENTRAL_TZ });
+
 // ---------- log ring buffer (powers /logs) ----------
 const logBuffer = [];
 function captureConsole() {
@@ -34,7 +39,7 @@ function captureConsole() {
     console[level] = (...args) => {
       original(...args);
       const line = args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
-      logBuffer.push(`${new Date().toLocaleTimeString()} ${line}`);
+      logBuffer.push(`${fmtCTtime(Date.now())} ${line}`);
       if (logBuffer.length > 500) logBuffer.shift();
     };
   }
@@ -162,7 +167,7 @@ function page(title, body) {
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
-<nav><a href="/">Home</a><a href="/items">Items</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs</a></nav>
+<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs</a></nav>
 </header>
 <script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
 ${body}
@@ -185,7 +190,7 @@ async function triggerRun(edition) {
     return null;
   } catch (err) {
     console.error(`❌ ${edition} run failed: ${err.message}`);
-    lastRunProblem = { when: new Date().toLocaleString(), message: `${edition.toUpperCase()} run failed: ${err.message}` };
+    lastRunProblem = { when: fmtCT(Date.now()), message: `${edition.toUpperCase()} run failed: ${err.message}` };
     return lastRunProblem.message;
   } finally {
     runInProgress = false;
@@ -237,10 +242,10 @@ function sourcesSection(watchlist, openId) {
         status = "turned off";
       } else if (s.lastSuccess && Date.now() - new Date(s.lastSuccess).getTime() < 36 * 60 * 60 * 1000) {
         dot = "🟢";
-        status = `checked ${new Date(s.lastSuccess).toLocaleString()}`;
+        status = `checked ${fmtCT(s.lastSuccess)}`;
       } else if (s.lastSuccess) {
         dot = "🟠";
-        status = `last success ${new Date(s.lastSuccess).toLocaleString()} — check the logs`;
+        status = `last success ${fmtCT(s.lastSuccess)} — check the logs`;
       } else {
         dot = "🟠";
         status = "waiting for first successful run";
@@ -408,7 +413,7 @@ function homeBody(notice, openId = null) {
         .replace(/-(am|pm)$/, (m) => m.replace("-", " · ").toUpperCase())
         .replace(/-weekly$/, " · 📚 WEEKLY");
       return `<li><a href="/brief/${encodeURIComponent(name)}">${esc(label)}</a> <span class="muted">${esc(
-        new Date(b.created_at).toLocaleString()
+        fmtCT(b.created_at)
       )}</span></li>`;
     })
     .join("\n");
@@ -600,18 +605,13 @@ function itemsBody(params, notice) {
     .map((r) => {
       const isTracked = trackedKeys.has(r.uid);
       const hasSummary = summarizedSet.has(r.uid);
-      const summaryPanel = `<details class="summary" data-uid="${esc(r.uid)}">
-        <summary>🧠 AI summary${hasSummary ? ' <span class="muted">· ready</span>' : ""}</summary>
-        <div class="sumbody"><span class="muted">Open to generate a ≤500-word summary of the linked document and why it matters.</span></div>
+      const summaryPanel = `<details class="summary" data-uid="${esc(r.uid)}"${hasSummary ? " data-stored=\"1\"" : ""}>
+        <summary>${hasSummary ? '🧠 <span style="color:#0a7d33;font-weight:600" title="Summary stored — click to view (reviewed)">✓ stored</span>' : "🧠 AI summary"}</summary>
+        <div class="sumbody"><span class="muted">${hasSummary ? "Open to view the stored summary." : "Open to generate a ≤500-word summary of the linked document and why it matters."}</span></div>
       </details>`;
-      const trackBtn = `<form method="post" action="/items/track">
-        <input type="hidden" name="uid" value="${esc(r.uid)}"><input type="hidden" name="on" value="${isTracked ? "false" : "true"}">
-        <input type="hidden" name="back" value="${esc(back)}">
-        <button class="ghost tiny" title="${isTracked ? "Stop tracking" : "Track: flag future movement in briefs"}">${isTracked ? "📌 tracked" : "📌 track"}</button></form>`;
-      const fb = (val, emoji) => `<form method="post" action="/items/feedback">
-        <input type="hidden" name="uid" value="${esc(r.uid)}"><input type="hidden" name="fb" value="${r.feedback === val ? "" : val}">
-        <input type="hidden" name="back" value="${esc(back)}">
-        <button class="ghost tiny fb${r.feedback === val ? " on" : ""}" title="${val === "up" ? "Good catch — more like this" : "Not relevant — fewer like this"}">${emoji}</button></form>`;
+      // Buttons are AJAX (class "act") — they update in place so the page never scrolls back to the top.
+      const trackBtn = `<button type="button" class="ghost tiny act${isTracked ? " on" : ""}" data-act="track" data-uid="${esc(r.uid)}" data-on="${isTracked ? "false" : "true"}" title="${isTracked ? "Stop tracking" : "Track: flag future movement in briefs"}">${isTracked ? "📌 tracked" : "📌 track"}</button>`;
+      const fb = (val, emoji) => `<button type="button" class="ghost tiny fb act${r.feedback === val ? " on" : ""}" data-act="feedback" data-uid="${esc(r.uid)}" data-fb="${r.feedback === val ? "" : val}" data-val="${val}" title="${val === "up" ? "Good catch — more like this" : "Not relevant — fewer like this"}">${emoji}</button>`;
       return `<tr>
         <td><a href="${esc(r.url ?? "#")}" target="_blank" rel="noopener">${esc((r.title ?? r.uid).slice(0, 110))}</a>
           ${r.one_line ? `<br><span class="muted">${esc(r.one_line)}</span>` : ""}
@@ -626,7 +626,7 @@ function itemsBody(params, notice) {
   return `
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${trackedBlock}
-<h2>Stored items</h2>
+<h2>Laws, Rules &amp; Decisions</h2>
 <form method="get" action="/items" class="toolbar">
   <input type="text" name="q" placeholder="search title / summary…" value="${esc(filters.q)}">
   <select name="topic"><option value="">any topic</option>${topicOptions}</select>
@@ -662,6 +662,31 @@ document.querySelectorAll('details.summary').forEach(function(d){
         }
       })
       .catch(function(e){ body.innerHTML='<span class="muted">⚠️ '+e+'</span>'; d.dataset.loaded=''; });
+  });
+});
+// Track / 👍 / 👎 update in place via fetch — the page never scrolls back to the top.
+document.querySelectorAll('button.act').forEach(function(b){
+  b.addEventListener('click', function(){
+    var act=b.dataset.act;
+    var body= act==='feedback'
+      ? 'uid='+encodeURIComponent(b.dataset.uid)+'&fb='+encodeURIComponent(b.dataset.fb)
+      : 'uid='+encodeURIComponent(b.dataset.uid)+'&on='+encodeURIComponent(b.dataset.on);
+    b.disabled=true;
+    fetch('/items/'+act,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','x-requested-with':'fetch'},body:body})
+      .then(function(r){return r.json();}).then(function(j){
+        b.disabled=false;
+        if(!j.ok) return;
+        if(act==='feedback'){
+          b.closest('td').querySelectorAll('.fb').forEach(function(x){
+            var on=(j.feedback===x.dataset.val);
+            x.classList.toggle('on',on); x.dataset.fb= on?'':x.dataset.val;
+          });
+        } else {
+          b.classList.toggle('on',j.tracked);
+          b.dataset.on= j.tracked?'false':'true';
+          b.textContent= j.tracked?'📌 tracked':'📌 track';
+        }
+      }).catch(function(){ b.disabled=false; });
   });
 });
 </script>`;
@@ -826,7 +851,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
 
       if (req.method === "GET" && url.pathname === "/items") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("The Bean Brief · items", itemsBody(url.searchParams, url.searchParams.get("notice"))));
+        res.end(page("The Bean Brief · laws, rules & decisions", itemsBody(url.searchParams, url.searchParams.get("notice"))));
         return;
       }
 
@@ -1007,12 +1032,15 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         const form = await readForm(req);
         const uid = form.get("uid") ?? "";
         const on = form.get("on") === "true";
-        let notice;
-        if (on) notice = store.trackItem(uid) ? "📌 Tracking — new activity will be flagged in briefs." : "Item not found.";
-        else {
-          store.untrackItem(uid);
-          notice = "Stopped tracking.";
+        let ok = true;
+        if (on) ok = Boolean(store.trackItem(uid));
+        else store.untrackItem(uid);
+        if (req.headers["x-requested-with"] === "fetch") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok, tracked: on && ok }));
+          return;
         }
+        const notice = on ? (ok ? "📌 Tracking — new activity will be flagged in briefs." : "Item not found.") : "Stopped tracking.";
         const back = form.get("back") || "/items";
         redirect(res, `${back}${back.includes("?") ? "&" : "?"}notice=${encodeURIComponent(notice)}`);
         return;
@@ -1021,7 +1049,13 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "POST" && url.pathname === "/items/feedback") {
         const form = await readForm(req);
         const fb = form.get("fb");
-        store.setFeedback(form.get("uid") ?? "", fb === "up" || fb === "down" ? fb : null);
+        const newState = fb === "up" || fb === "down" ? fb : null;
+        store.setFeedback(form.get("uid") ?? "", newState);
+        if (req.headers["x-requested-with"] === "fetch") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, feedback: newState }));
+          return;
+        }
         const notice = fb ? (fb === "up" ? "👍 Noted — more like this." : "👎 Noted — the AI will be told to avoid similar items.") : "Feedback cleared.";
         const back = form.get("back") || "/items";
         redirect(res, `${back}${back.includes("?") ? "&" : "?"}notice=${encodeURIComponent(notice)}`);
