@@ -57,12 +57,16 @@ trend retrieval) is already done + committed (`0200cfd`).
   snapshot + a curriculum concept (Q3) and writes the §3 daily-brief structure. Nonpartisan,
   no-advice guardrail. Homepage button + CLI `memo education`. Verify a real run reads clean +
   teaches. Files: `pipeline.js`, `server.js`, `index.js`. (Depends on Q3.)
-- [ ] **Q7 — CME daily settlements adapter** (`src/adapters/cme_settlements.js`, keyless, FLAKY).
+- [!] **Q7 — CME daily settlements adapter** — BLOCKED. CME's CmeWS endpoint returns HTTP 403
+  "This IP address is blocked due to suspected web scraping" (Akamai, IP-level) for both soybeans
+  (320) and corn (300), regardless of headers/UA. Not solvable from this dev machine's IP. See Punch-list.
   Try `https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/<id>/FUT` (soybeans id
   ~`320`, corn ~`300`) for daily settle/OI/volume. If Akamai-blocked/403 after 2 tries → `[!]`
   and Punch-list ("CME settlements need a vendor or the FTP bulletin; revisit"). If it works:
   ZS + ZC front-month settle series, category `futures`, chart. Files: adapter + wiring.
-- [ ] **Q8 — WASDE balance-sheet series** (`src/adapters/usda_wasde.js`, keyless, HARD).
+- [!] **Q8 — WASDE balance-sheet series** — DEFERRED. Cornell ESMIS migrated to esmis.nal.usda.gov
+  (Drupal); the old machine-readable `.json` API path now 404s, so the WASDE data-file URLs aren't
+  reachable in a 2-probe window, and WASDE Excel/XML parsing is heavy regardless. See Punch-list.
   Machine-readable WASDE on Cornell ESMIS (usda.library.cornell.edu / `oce` XML or Excel). Pull
   U.S. soybean **ending stocks** + **stocks-to-use** monthly. If the XML/Excel path resists after
   2 tries → `[!]` + Punch-list (it's the highest-parse-effort item; fine to defer). Files: adapter
@@ -86,6 +90,20 @@ trend retrieval) is already done + committed (`0200cfd`).
   (same `docker exec node -e` pattern as agtransport) + `market-refresh`.
 - **Eyeball the new charts** on the Markets tab and the education brief for tone/quality.
 - **Decide** on any `[!]` blocked items (CME/WASDE) — whether to invest the extra parsing.
+- **`[!]` Q7 CME futures settlements — needs a human decision.** CME's public CmeWS JSON is Akamai
+  IP-blocked from the dev PC (403 "IP blocked"). Options, best first: (a) **retry the adapter from the
+  Pi** (different residential IP — the "defer to the Pi" pattern; the endpoint is
+  `cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/320/FUT` for soybeans, 300 for corn, with a
+  browser UA); (b) **Barchart OnDemand API** (the recommended paid backbone — futures + cash bids in
+  one, ag-native) — the durable answer for real-time-ish ZS/ZC; (c) CME FTP settlement files if still
+  open. Futures price is the one piece the education data contract still lacks; agtransport/NASS/EIA
+  cover the rest for free.
+- **`[!]` Q8 WASDE (ending stocks + stocks-to-use) — deferred, needs a parser build.** ESMIS moved
+  to `esmis.nal.usda.gov` (Drupal 11) and dropped the old Samvera `.json` API. Retry paths: (a) the
+  **USDA OCE** direct machine-readable WASDE at usda.gov/oce/commodity/wasde (there's an XML/Excel data
+  file alongside the PDF — find the current URL); (b) navigate the new ESMIS Drupal site for the WASDE
+  publication's Excel/XML download; then build a parser for the U.S. soybean ending-stocks +
+  stocks-to-use lines and trigger off the WASDE release calendar. Highest-effort item; safe to leave.
 - **(Optional) Brazil production trend chart:** Q5 (IBGE) shipped as queryable series/items but with
   only ~2 crop-year points (LSPA 1618). For a real multi-year Brazil soybean production trend chart,
   add PAM aggregate **1612** (final annual production, long history) as a second IBGE series — one

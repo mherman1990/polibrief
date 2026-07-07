@@ -86,3 +86,57 @@ correctly REFUSED to invent a COT number it didn't have ("the data provided here
 the current COT positioning") = guardrail #2 holding; no advice, nonpartisan, Today's-Terms from the
 glossary. Homepage button present, /brief/…education.md renders, 0 errors. Files: pipeline.js,
 curriculum.js, server.js, + queue/log. Next: Q7 (CME settlements — flaky, keyless).
+
+**Wake 7 — Q7 CME settlements — 🚫 BLOCKED [!].** CME's public CmeWS JSON endpoint
+(`cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/{320|300}/FUT`) returns HTTP 403
+"This IP address is blocked due to suspected web scraping activity" — Akamai IP-level block for both
+soybeans (320) and corn (300), independent of UA/headers. A 2nd attempt from the same IP is futile
+(the block is on the IP, not the request). Marked `[!]`; Punch-list has the retry path (from the Pi's
+IP, or Barchart OnDemand for the durable futures feed). No code committed for Q7 (nothing built).
+Proceeding to Q8 (WASDE) in the same wake.
+
+**Wake 7 (cont.) — Q8 WASDE — 🚫 DEFERRED [!].** Cornell ESMIS migrated to `esmis.nal.usda.gov`
+(Drupal 11); the old Samvera/Hyrax `.json` API (`/concern/publications/3t945q76s.json`) now 301s to
+the new host and then 404s — the machine-readable file URLs aren't reachable via a quick probe. WASDE
+Excel/XML parsing is heavy regardless. Marked `[!]`; Punch-list has retry paths (USDA OCE direct
+XML/Excel, or the new ESMIS Drupal download) + note that it needs a dedicated parser. No code committed.
+
+---
+
+## 🌙 OVERNIGHT RUN COMPLETE — final summary
+
+**Shipped 6 of 8 queued items + the anchor build**, all as **unpushed commits on `main`** for Matt's
+review. No pushes, no deploys, other chat's files never touched.
+
+| # | Item | Result | Commit |
+|---|------|--------|--------|
+| 0 | Deep trend retrieval (anchor) | ✅ | `0200cfd` |
+| Q1 | U.S. Drought Monitor adapter | ✅ | `cf65b79` |
+| Q2 | NASS corn price + soy:corn ratio | ✅ | `76a45af` |
+| Q3 | Curriculum + glossary store | ✅ | `ef9dd2a` |
+| Q4 | 4 ag-news RSS feeds | ✅ | `83c65e4` |
+| Q5 | Brazil IBGE SIDRA | ✅ (no chart) | `a0bc5e8` |
+| Q6 | Education brief mode (Mode A) | ✅ | `77ade77` |
+| Q7 | CME settlements | 🚫 blocked (Akamai IP 403) | — |
+| Q8 | WASDE series | 🚫 deferred (ESMIS migration) | — |
+
+**Net new for the platform:** 25 market series (was 18) across 3 new keyless adapters (drought,
+Brazil) + NASS corn/ratio; **10 interactive Markets charts** (added corn price, soy:corn ratio,
+drought); 4 ag-news feeds (farmdoc daily etc.); the **education engine's Mode A daily brief** running
+"teach, don't tell" on the whole stack; and the curriculum/glossary knowledge base behind it. The
+deep trend retrieval (YoY/seasonal/percentile) is the through-line — the education brief demonstrably
+uses it.
+
+**MORNING PUNCH-LIST (see queue doc for full detail):**
+1. **Register free keys** → then I build/test those adapters: **FRED** (macro: dollar/rates/PPI),
+   **FAS Open Data** retry (PSD global S&D).
+2. **Review the night's commits** (`git log origin/main..main` — 8 commits) + eyeball the new charts
+   and the education brief.
+3. **Ship v1.7.0** (bump `package.json` + store manifest → tag → GHCR → Umbrel Update). Then the Pi
+   `/data` steps: new `registry.json` (4 feeds), merge `agtransport`+`drought_monitor`+`ibge_brazil`
+   into `/data/watchlist.json`, run `seed-curriculum` + `market-refresh` in the container.
+4. **Decide on the two `[!]` items:** CME futures (retry from the Pi's IP, or buy Barchart) and WASDE
+   (build the OCE/ESMIS parser). Both are optional; the free stack covers most of the signal.
+5. Optional: Brazil production **trend** chart via PAM 1612 (Q5 shipped only ~2 crop-year points).
+
+Loop ending — not rescheduling. 🌱
