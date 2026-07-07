@@ -581,16 +581,48 @@ function stackedAreaSVG(seriesList, { width = 700, height = 300, months = 72 } =
     <div class="muted" style="font-size:.75em">units: ${esc(unit)}/month</div><div style="margin-top:4px">${legend}</div>`;
 }
 
+// Multi-line chart (inline SVG) for same-unit series (price, crush, stocks…).
+function lineChartSVG(seriesList, { width = 700, height = 240, months = 120 } = {}) {
+  const W = width, H = height, padL = 54, padB = 26, padT = 10, padR = 10;
+  const periods = [...new Set(seriesList.flatMap((s) => s.points.map((p) => p.period)))].sort().slice(-months);
+  const n = periods.length;
+  if (n < 2) return '<p class="muted">Not enough history yet.</p>';
+  const vals = seriesList.flatMap((s) => s.points.map((p) => p.value));
+  const maxY = Math.max(...vals), minY = Math.min(0, ...vals);
+  const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
+  const y = (v) => H - padB - ((v - minY) / (maxY - minY || 1)) * (H - padB - padT);
+  const lines = seriesList.map((s, si) => {
+    const m = new Map(s.points.map((p) => [p.period, p.value]));
+    const pts = periods.map((p, i) => (m.has(p) ? `${x(i).toFixed(1)},${y(m.get(p)).toFixed(1)}` : null)).filter(Boolean).join(" ");
+    return `<polyline points="${pts}" fill="none" stroke="${CHART_COLORS[si % CHART_COLORS.length]}" stroke-width="2"/>`;
+  }).join("");
+  const axis = `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#ccc"/>` +
+    `<text x="${padL}" y="${H - 8}" font-size="10" fill="#666">${esc(periods[0])}</text>` +
+    `<text x="${W - padR}" y="${H - 8}" font-size="10" fill="#666" text-anchor="end">${esc(periods[n - 1])}</text>` +
+    `<text x="4" y="${padT + 8}" font-size="10" fill="#666">${Math.round(maxY).toLocaleString()}</text>`;
+  const legend = seriesList.length > 1
+    ? `<div style="margin-top:4px">${seriesList.map((s, si) => `<span style="display:inline-block;margin-right:10px;font-size:.8em"><span style="display:inline-block;width:12px;height:3px;background:${CHART_COLORS[si % CHART_COLORS.length]};vertical-align:middle"></span> ${esc(s.label)}</span>`).join("")}</div>`
+    : "";
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;height:auto" role="img"><rect width="${W}" height="${H}" fill="#fff"/>${axis}${lines}</svg><div class="muted" style="font-size:.75em">units: ${esc(seriesList[0]?.unit || "")}</div>${legend}`;
+}
+
+function chartSection(category, title, desc, renderer) {
+  const series = store.listSeriesMeta(category).map((m) => ({ label: m.label, unit: m.unit, points: store.getSeries(m.series) }));
+  if (!series.length || !series.some((s) => s.points.length)) return "";
+  return `<h2 style="margin-bottom:2px">${title}
+      <a class="ghost tiny" href="/markets/csv?category=${category}" style="font-size:.65em;vertical-align:middle">⬇ CSV</a></h2>
+    <p class="muted" style="margin-top:0">${desc}</p>${renderer(series)}`;
+}
+
 function marketsBody() {
-  const feedstock = store.listSeriesMeta("biofuel_feedstock").map((m) => ({ label: m.label, unit: m.unit, points: store.getSeries(m.series) }));
-  const chart = feedstock.length
-    ? `<h2 style="margin-bottom:2px">Biofuel feedstock market share
-         <a class="ghost tiny" href="/markets/csv?category=biofuel_feedstock" style="font-size:.65em;vertical-align:middle">⬇ CSV</a></h2>
-       <p class="muted" style="margin-top:0">Lipid feedstocks consumed by U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…).</p>
-       ${stackedAreaSVG(feedstock)}`
-    : `<p class="muted">Feedstock chart populates after a run (or <code>market-refresh</code>) with the EIA key set.</p>`;
+  const charts = [
+    chartSection("biofuel_feedstock", "Biofuel feedstock market share", "Lipid feedstocks in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…).", stackedAreaSVG),
+    chartSection("soy_price", "Soybean price received", "Monthly average price ($/bu) — Iowa vs. U.S.", lineChartSVG),
+    chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, at record highs on renewable-diesel demand.", lineChartSVG),
+    chartSection("soy_stocks", "U.S. soybean stocks", "Quarterly ending stocks — the supply cushion behind price.", lineChartSVG),
+  ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
   return `<h1>📈 Markets &amp; Demand</h1>
-    ${chart}
+    ${charts || '<p class="muted">Charts populate after a run (or <code>market-refresh</code>) once the USDA/EIA keys are set.</p>'}
     <h2 style="margin-top:22px">Latest data points</h2>
     ${feedRows("markets", "No markets data yet — set the USDA/EIA API keys and the demand adapters populate this tab.")}`;
 }

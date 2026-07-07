@@ -64,3 +64,46 @@ export async function fetchItems({ sourceConfig = {}, env = process.env }) {
   }
   return items;
 }
+
+// ── Timeseries (v1.5 Markets charts) ────────────────────────────────────────
+// Demand/supply/price series most relevant to Iowa soybean farmers.
+const NASS_SERIES = [
+  { key: "nass:us:crush", label: "U.S. soybean crush", category: "soy_crush", unit: "tons/mo",
+    params: { commodity_desc: "SOYBEANS", statisticcat_desc: "CRUSHED", agg_level_desc: "NATIONAL" } },
+  { key: "nass:us:price", label: "U.S. avg", category: "soy_price", unit: "$/bu",
+    params: { commodity_desc: "SOYBEANS", statisticcat_desc: "PRICE RECEIVED", agg_level_desc: "NATIONAL", unit_desc: "$ / BU" } },
+  { key: "nass:ia:price", label: "Iowa avg", category: "soy_price", unit: "$/bu",
+    params: { commodity_desc: "SOYBEANS", statisticcat_desc: "PRICE RECEIVED", state_alpha: "IA", unit_desc: "$ / BU" } },
+  { key: "nass:us:stocks", label: "U.S. soybean stocks", category: "soy_stocks", unit: "bu",
+    params: { commodity_desc: "SOYBEANS", statisticcat_desc: "STOCKS", agg_level_desc: "NATIONAL", unit_desc: "BU" } },
+];
+const MM2 = /^(0[1-9]|1[0-2])$/;
+
+/** Returns [{ series, meta, points }] for store.saveSeriesPoints. */
+export async function fetchSeries({ env = process.env } = {}) {
+  const key = env.NASS_API_KEY;
+  if (!key) return [];
+  const yearGE = new Date().getFullYear() - 9;
+  const out = [];
+  for (const s of NASS_SERIES) {
+    const p = new URLSearchParams({ key, format: "JSON", year__GE: String(yearGE), ...s.params });
+    let data;
+    try {
+      data = await fetchJSON(`${BASE}?${p}`);
+    } catch {
+      continue;
+    }
+    const pts = new Map();
+    for (const r of data.data ?? []) {
+      if (r.freq_desc === "ANNUAL") continue; // skip marketing-year/annual rows
+      const mm = r.end_code; // NASS period-end month code, "01".."12"
+      if (!MM2.test(mm)) continue;
+      const val = Number(String(r.Value).replace(/,/g, ""));
+      if (!Number.isFinite(val)) continue; // skips "(D)"/"(NA)" suppressed values
+      pts.set(`${r.year}-${mm}`, val);
+    }
+    const points = [...pts.entries()].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period));
+    if (points.length) out.push({ series: s.key, meta: { label: s.label, unit: s.unit, category: s.category }, points });
+  }
+  return out;
+}
