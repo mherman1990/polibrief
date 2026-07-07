@@ -272,10 +272,18 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
   console.log(`\n✅ Saved ${deliveredTo.join(" · posted to ")}\n`);
 }
 
-/** Render the market snapshot as compact, category-grouped lines for the query context. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Render the deep trend snapshot as compact, category-grouped lines — latest + change,
+ * year-over-year, historical range/percentile, and a seasonal read — so the model can
+ * teach trends (is this seasonally normal? how does it compare to years past?) from the
+ * full history we store, not just the latest number.
+ */
 function formatMarketSnapshot(snapshot) {
   if (!snapshot || snapshot.length === 0) return "";
-  const fmt = (v) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Number(Number(v).toFixed(2))));
+  const fmt = (v) => (v == null ? "—" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Number(Number(v).toFixed(2))));
+  const pct = (v) => (v == null ? "" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
   const byCat = new Map();
   for (const s of snapshot) {
     const cat = s.category || "other";
@@ -286,13 +294,17 @@ function formatMarketSnapshot(snapshot) {
   for (const [cat, list] of byCat) {
     lines.push(`# ${cat}`);
     for (const s of list) {
-      const latest = `${fmt(s.latest.value)} ${s.unit} (${s.latest.period})`;
-      const chg =
-        s.changeAbs != null
-          ? `, ${s.changeAbs >= 0 ? "+" : ""}${fmt(s.changeAbs)}${s.changePct != null ? ` (${s.changePct >= 0 ? "+" : ""}${s.changePct.toFixed(1)}%)` : ""} vs prior (${s.previous.period})`
-          : "";
-      const trail = s.trail.length > 1 ? ` — recent: ${s.trail.map((p) => fmt(p.value)).join(" → ")}` : "";
-      lines.push(`- ${s.label}: ${latest}${chg}${trail}`);
+      const parts = [`${fmt(s.latest.value)} ${s.unit} (${s.latest.period})`];
+      if (s.changePct != null) parts.push(`Δ ${pct(s.changePct)} vs prior`);
+      if (s.yoyPct != null) parts.push(`YoY ${pct(s.yoyPct)}`);
+      parts.push(`range ${fmt(s.min.value)}–${fmt(s.max.value)}, now ${s.percentile}th pctile of ${s.count} obs since ${s.firstPeriod}`);
+      if (s.seasonalDeltaPct != null) {
+        const mon = MONTHS[(Number(s.latest.period.slice(5, 7)) || 1) - 1];
+        parts.push(`seasonal ${pct(s.seasonalDeltaPct)} vs ${mon} avg (${s.seasonalPctile}th pctile for ${mon})`);
+      }
+      let line = `- ${s.label}: ${parts.join("; ")}`;
+      if (s.trail && s.trail.length > 1) line += ` — recent: ${s.trail.map((p) => fmt(p.value)).join(" → ")}`;
+      lines.push(line);
     }
   }
   return lines.join("\n");
@@ -361,7 +373,7 @@ export async function answerQuery(question, env) {
     model,
     max_tokens: 2000,
     system:
-      "You are the research assistant for a professional at the Iowa Soybean Association whose remit is BOTH policy and demand/markets. Answer using ONLY the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. Synthesize across streams when it helps — e.g. connect a policy or trade development to the market numbers. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Use plain, professional English. If the stored data doesn't answer the question, say so plainly rather than guessing.",
+      "You are the research assistant for a professional at the Iowa Soybean Association whose remit is BOTH policy and demand/markets. Answer using ONLY the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams when it helps — e.g. connect a policy or trade development to the market numbers. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Use plain, professional English. If the stored data doesn't answer the question, say so plainly rather than guessing.",
     messages: [
       {
         role: "user",

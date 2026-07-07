@@ -199,37 +199,89 @@ export function listSeriesMeta(category = null) {
     : db.prepare("SELECT * FROM market_series_meta ORDER BY category, label").all();
 }
 
+/** "YYYY-MM" or "YYYY-MM-DD" → epoch ms (UTC), or null. */
+function periodToMs(p) {
+  const m = String(p).split("-");
+  if (m.length < 2) return null;
+  const t = Date.UTC(+m[0], (+m[1] || 1) - 1, +m[2] || 1);
+  return Number.isNaN(t) ? null : t;
+}
+
 /**
- * Compact snapshot of every market series — latest value, prior value, absolute/percent
- * change, and a short recent trail — for the master query engine (makes the demand-side
- * timeseries answerable in plain English, not just visible as charts). Small by design
- * (~13 series), so it's cheap to hand the LLM the whole board on every question.
+ * Deep trend snapshot of every market series — computed over the FULL stored history,
+ * so the query engine can teach trends, not just report the latest number. Per series:
+ * latest + prior change, year-over-year, historical range + where the latest sits
+ * (percentile), a seasonal read (vs. the same month across years), and a 12-point trail.
+ * This is what lets "Ask the Bean Brief" (and the memos) answer "is this seasonally
+ * normal / how does it compare to five years ago" from data we already keep. Cheap:
+ * ~20 series × SQLite reads + arithmetic, a few hundred points each.
  */
 export function marketSnapshot() {
   const metas = db.prepare("SELECT series, label, unit, category FROM market_series_meta ORDER BY category, label").all();
   const out = [];
   for (const m of metas) {
-    const pts = db
-      .prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period DESC LIMIT 6")
-      .all(m.series);
-    if (!pts.length) continue;
-    const latest = pts[0];
-    const previous = pts[1] ?? null;
+    const pts = db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(m.series);
+    const n = pts.length;
+    if (!n) continue;
+    const latest = pts[n - 1];
+    const previous = n > 1 ? pts[n - 2] : null;
     const changeAbs = previous ? latest.value - previous.value : null;
     const changePct = previous && previous.value ? ((latest.value - previous.value) / Math.abs(previous.value)) * 100 : null;
+
+    // Year-ago: the point closest to (latest date − 365d), if one lands within ~45 days.
+    const latestMs = periodToMs(latest.period);
+    let yearAgo = null;
+    if (latestMs != null) {
+      const target = latestMs - 365 * 864e5;
+      let bestDiff = Infinity;
+      for (const p of pts) {
+        const ms = periodToMs(p.period);
+        if (ms == null) continue;
+        const d = Math.abs(ms - target);
+        if (d < bestDiff) { bestDiff = d; yearAgo = p; }
+      }
+      if (bestDiff > 50 * 864e5) yearAgo = null; // no comparable point ~a year back
+    }
+    const yoyPct = yearAgo && yearAgo.value ? ((latest.value - yearAgo.value) / Math.abs(yearAgo.value)) * 100 : null;
+
+    // Full-history range, average, and the latest's percentile within it.
+    let min = pts[0], max = pts[0], sum = 0;
+    for (const p of pts) { if (p.value < min.value) min = p; if (p.value > max.value) max = p; sum += p.value; }
+    const avg = sum / n;
+    const percentile = Math.round((pts.filter((p) => p.value <= latest.value).length / n) * 100);
+
+    // Seasonal: latest vs. the same calendar month averaged across all years.
+    const lm = latest.period.slice(5, 7);
+    const sameMonth = pts.filter((p) => p.period.slice(5, 7) === lm);
+    let seasonalAvg = null, seasonalDeltaPct = null, seasonalPctile = null;
+    if (sameMonth.length >= 3) {
+      seasonalAvg = sameMonth.reduce((a, p) => a + p.value, 0) / sameMonth.length;
+      seasonalDeltaPct = seasonalAvg ? ((latest.value - seasonalAvg) / Math.abs(seasonalAvg)) * 100 : null;
+      seasonalPctile = Math.round((sameMonth.filter((p) => p.value <= latest.value).length / sameMonth.length) * 100);
+    }
+
     out.push({
-      series: m.series,
-      label: m.label,
-      unit: m.unit,
-      category: m.category,
-      latest,
-      previous,
-      changeAbs,
-      changePct,
-      trail: pts.slice().reverse(), // oldest→newest, for a quick trend read
+      series: m.series, label: m.label, unit: m.unit, category: m.category,
+      latest, previous, changeAbs, changePct,
+      yearAgo, yoyPct,
+      min, max, avg, percentile,
+      seasonalAvg, seasonalDeltaPct, seasonalPctile,
+      count: n, firstPeriod: pts[0].period,
+      trail: pts.slice(-12),
     });
   }
   return out;
+}
+
+/**
+ * Full history for one series (+ meta) — for on-demand deep dives when a question
+ * targets a specific series and the snapshot's summary stats aren't enough.
+ */
+export function seriesHistory(series) {
+  const meta = db.prepare("SELECT series, label, unit, category FROM market_series_meta WHERE series = ?").get(series);
+  if (!meta) return null;
+  const points = db.prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period").all(series);
+  return { ...meta, points };
 }
 
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
