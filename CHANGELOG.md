@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.7.0 — Trend-aware answers · market-education brief · more market data
+
+### Added
+- **Deeper trend retrieval** — the Ask box and memos now see each market series over its *full*
+  history: year-over-year, the historical range with the latest value's percentile, and a seasonal
+  read (vs. the same month across years). So it can answer "is this seasonally normal / how does it
+  compare to years past," not just report the latest number.
+- **Market-education brief** (🎓 on the homepage / `memo education`) — a plain-language, strictly
+  nonpartisan "teach, don't tell" daily brief for farmers: what moved and *why*, a rotating teaching
+  concept, and what to watch — grounded only in the data, with every figure cited by source + date.
+  Backed by a new **curriculum + glossary** knowledge base (`seed-curriculum`).
+- **New market data (Markets tab):**
+  - **U.S. Drought Monitor** — Iowa area in drought (D1+) and abnormally dry+ (D0+), weekly.
+  - **Corn price** (Iowa vs. U.S.) and the **soybean:corn price ratio** — the relative-value / acreage read.
+  - **Brazil soybean production + area** (IBGE) — the competitor-supply signal (queryable).
+- **More ag-news feeds** on the News tab: farmdoc daily, Farm Policy News, No-Till Farmer, Feedstuffs.
+
+### Changed
+- Ten interactive charts on the Markets tab now, each with hover value + date and a CSV download.
+
 ## 1.6.0 — Master query engine · on-demand memos · interactive charts · more market data
 
 ### Added
