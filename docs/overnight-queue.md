@@ -40,7 +40,7 @@ trend retrieval) is already done + committed (`0200cfd`).
   (§3 curriculum table + glossary_available). CLI `node src/index.js seed-curriculum`. Verify:
   tables created, seed inserts, pickConcept returns a season-appropriate LRU concept. Files:
   `store.js`, `src/index.js`, maybe `src/curriculum.js` (seed data).
-- [ ] **Q4 — Ag-news RSS additions** (extend `registry.json`, keyless).
+- [x] **Q4 — Ag-news RSS additions** (extend `registry.json`, keyless).
   Add reliable ag RSS to the News tab: Brownfield (`brownfieldagnews.com/feed/`), AgWeb, DTN
   Progressive Farmer, Successful Farming — as `feed`-kind channels on news entities (mirror the
   existing feed-* entities). Verify each URL returns items via the rss adapter fetch; drop any
@@ -74,6 +74,12 @@ trend retrieval) is already done + committed (`0200cfd`).
   - **FAS Open Data** — retry the key at https://apps.fas.usda.gov/opendata (the ESR endpoint was 500ing; PSD Online global S&D may work independently). Existing `FAS_API_KEY` may already be valid — test.
   - **AGTRANSPORT_APP_TOKEN** (optional) — only if we hit Socrata rate limits.
   - **Trading Economics** (optional macro) — freemium key.
+- **Pi /data updates for this batch** (persisted files don't auto-update from the image):
+  - `registry.json` → pull the new one to `/data` (Q4 added 4 ag-news feeds: farmdoc daily, Farm
+    Policy News, No-Till Farmer, Feedstuffs).
+  - `watchlist.json` → merge the new market sources (`agtransport`, `drought_monitor`) — enabled.
+  - Run `node src/index.js seed-curriculum` (Q3) and `market-refresh` (populates drought/corn/ratio
+    + any other new series) inside the container.
 - **Verify + deploy:** review the night's unpushed commits (`git log origin/main..main`), then
   ship a **v1.7.0** release (bump `package.json` + store manifest → tag → GHCR → Umbrel Update).
   New adapters need their `watchlist.json` source **merged into the Pi's `/data/watchlist.json`**

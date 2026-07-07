@@ -371,6 +371,26 @@
       "notes": "ISA's own news RSS → News tab. Verify on Pi.",
       "channels": [{ "kind": "rss", "url_or_handle": "https://www.iasoybeans.com/feed" }]
     },
+    {
+      "id": "feed-farmdocdaily", "type": "news_source", "full_name": "farmdoc daily (U. of Illinois)", "level": "national",
+      "notes": "Top ag-economics analysis (marketing, policy, crop budgets) — one of Matt's high-signal sources. Verified live 2026-07-06 (10 items).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://farmdocdaily.illinois.edu/feed" }]
+    },
+    {
+      "id": "feed-farmpolicynews", "type": "news_source", "full_name": "Farm Policy News (U. of Illinois)", "level": "national",
+      "notes": "Farm bill / ag-policy news roundup. Verified live 2026-07-06 (10 items).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://farmpolicynews.illinois.edu/feed/" }]
+    },
+    {
+      "id": "feed-notillfarmer", "type": "news_source", "full_name": "No-Till Farmer", "level": "national",
+      "notes": "Conservation-tillage / practice news (ties to 45Z regenerative feedstock rules). Verified live 2026-07-06 (30 items).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.no-tillfarmer.com/rss/articles" }]
+    },
+    {
+      "id": "feed-feedstuffs", "type": "news_source", "full_name": "Feedstuffs", "level": "national",
+      "notes": "Livestock/feed + grain-market news (soybean-meal demand). Verified live 2026-07-06 (50 items).",
+      "channels": [{ "kind": "rss", "url_or_handle": "https://www.feedstuffs.com/rss.xml" }]
+    },
 
     {
       "id": "gov-carb", "type": "agency", "full_name": "California Air Resources Board (LCFS)", "level": "state", "counties": ["*"],

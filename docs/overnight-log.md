@@ -48,3 +48,15 @@ sheet, WASDE, board-vs-cash, managed money, crush, condition ratings, Brazil, so
 **PUNCH-LIST:** run `node src/index.js seed-curriculum` on the Pi (and locally) — Q6's education
 brief mode depends on it; polibrief.db is gitignored so the seed doesn't ship in the image. Next:
 Q4 (ag-news RSS additions).
+
+**Wake 4 — Q4 ag-news RSS additions — ✅ DONE.** Probed 8 candidate feeds with the adapter's UA.
+**Kept 4** (200 + real items, non-dupe): **farmdoc daily** (illinois.edu/feed — Matt high-signal),
+**Farm Policy News**, **No-Till Farmer**, **Feedstuffs**. **Dropped:** AgWeb (403), Successful
+Farming/agriculture.com (403), DTN Progressive Farmer (404) — commercial bot-block/retired RSS, as
+the roadmap predicted; Brownfield already in registry (dupe, skipped). Added 4 `news_source` feed
+entities to `registry.json` (registry.json was git-clean → safe to edit + commit only my diff).
+**Test:** JSON valid (14 feed entities); registry-sync → 44 entities/80 channels (+4); rss adapter
+`parseFeed` live: Feedstuffs 50 items, Farm Policy News 10 items ("USDA releases June 2026 Acreage
+Report") — one farmdoc call hit a transient undici connect-timeout but retried fine (https.get probe
+had 200; the feed is good). Files: registry.json + queue/log. Punch-list updated (pull new
+registry.json → Pi /data). Next: Q5 (Brazil IBGE SIDRA adapter).
