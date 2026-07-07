@@ -5,7 +5,7 @@
 //   node src/index.js run --dry-run           fetch + score only, prints a table, NO Anthropic calls
 //   node src/index.js run --source legiscan   restrict to one source (testing)
 //   node src/index.js dry-run --source X      shorthand for run --dry-run --source X
-//   node src/index.js query "45Z guidance"    ask a question over stored briefs + items
+//   node src/index.js query "45Z guidance"    ask across stored items + market data + briefs
 //   node src/index.js audit                   per-source stats + Anthropic token usage this month
 //   node src/index.js serve                   web UI for reading briefs + built-in am/pm scheduler
 
@@ -43,15 +43,23 @@ program
 
 program
   .command("weekly")
-  .description("Generate the weekly synthesis memo from this week's daily briefs")
+  .description("Generate the weekly memo (shorthand for: memo weekly)")
   .action(async () => {
     const { runWeekly } = await import("./pipeline.js");
     await runWeekly(process.env);
   });
 
 program
+  .command("memo <preset>")
+  .description("Generate an on-demand memo across all streams: weekly | monthly | farmer")
+  .action(async (preset) => {
+    const { runMemo } = await import("./pipeline.js");
+    await runMemo(preset, process.env);
+  });
+
+program
   .command("query <question>")
-  .description("Ask a question over stored briefs and seen items")
+  .description("Ask across stored items (laws/rules + news), market data, and recent briefs")
   .action(async (question) => {
     const { runQuery } = await import("./pipeline.js");
     await runQuery(question, process.env);

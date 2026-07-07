@@ -90,6 +90,11 @@
       "enabled": true,
       "maxItemsPerRun": 5,
       "_note": "Markets tab — USDA AMS Iowa cash soybean price + basis (report 2850). Free key USDA_AMS_API_KEY."
+    },
+    "agtransport": {
+      "enabled": true,
+      "maxItemsPerRun": 10,
+      "_note": "Markets tab — USDA Ag Transport (Socrata, no key): soybean export inspections + net export sales (FAS stand-in) + Mississippi barge freight."
     }
   },
   "focusAreas": [

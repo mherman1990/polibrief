@@ -11,8 +11,8 @@ import { collectAll } from "./collect.js";
 import { scoreItems } from "./score.js";
 import { triageItems } from "./triage.js";
 import { generateBrief } from "./brief.js";
-import { saveBrief, postToTeams, sendEmail, sendFarmerEmail } from "./deliver.js";
-import { adapters, classOf } from "./adapters/index.js";
+import { saveBrief, postToTeams, sendEmail } from "./deliver.js";
+import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 
 /** The live watchlist file: the data-volume copy in Docker/Umbrel, else the project one. */
@@ -265,26 +265,57 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
     console.log(`⚠️  Email delivery failed: ${err.message}`);
   }
 
-  // 5b. Farmer-facing render (Track A second audience). Same relevant[] set, plain
-  // nonpartisan tone. Opt-in (output.farmerBrief === true) so the running app's cost
-  // never changes silently; emailed only if FARMER_BRIEF_TO is set, else saved/web.
-  if (watchlist.output?.farmerBrief === true) {
-    try {
-      const farmerMd = await generateBrief({ relevantItems: relevant, watchlist, edition, env, stats, audience: "farmer" });
-      const farmerPath = saveBrief(farmerMd, `${edition}-farmer`, timezone);
-      deliveredTo.push(path.relative(store.DATA_DIR, farmerPath));
-      if (await sendFarmerEmail(farmerMd, edition, env)) deliveredTo.push("farmer email");
-    } catch (err) {
-      console.log(`⚠️  Farmer brief failed: ${err.message}`);
-    }
-  }
+  // 5b. (Retired) The twice-daily farmer twin used to render here on every run. It's been
+  // replaced by the on-demand "farmer" memo preset (generateMemo) — same audience, but
+  // generated when asked over a chosen window, so the scheduled run never pays for it.
 
   console.log(`\n✅ Saved ${deliveredTo.join(" · posted to ")}\n`);
 }
 
+/** Render the market snapshot as compact, category-grouped lines for the query context. */
+function formatMarketSnapshot(snapshot) {
+  if (!snapshot || snapshot.length === 0) return "";
+  const fmt = (v) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Number(Number(v).toFixed(2))));
+  const byCat = new Map();
+  for (const s of snapshot) {
+    const cat = s.category || "other";
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push(s);
+  }
+  const lines = [];
+  for (const [cat, list] of byCat) {
+    lines.push(`# ${cat}`);
+    for (const s of list) {
+      const latest = `${fmt(s.latest.value)} ${s.unit} (${s.latest.period})`;
+      const chg =
+        s.changeAbs != null
+          ? `, ${s.changeAbs >= 0 ? "+" : ""}${fmt(s.changeAbs)}${s.changePct != null ? ` (${s.changePct >= 0 ? "+" : ""}${s.changePct.toFixed(1)}%)` : ""} vs prior (${s.previous.period})`
+          : "";
+      const trail = s.trail.length > 1 ? ` — recent: ${s.trail.map((p) => fmt(p.value)).join(" → ")}` : "";
+      lines.push(`- ${s.label}: ${latest}${chg}${trail}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** Project stored item rows to a compact, uniform shape for the LLM context. */
+function compactItems(rows) {
+  return rows.map((h) => ({
+    title: h.title,
+    url: h.url,
+    source: h.source_id,
+    jurisdiction: h.jurisdiction,
+    why: h.one_line,
+    verdict: h.triage_verdict,
+    seen: (h.first_seen_at || "").slice(0, 10),
+  }));
+}
+
 /**
- * Answer a question over stored items + recent briefs with one Sonnet call.
- * Shared by the CLI (`query`) and the web UI search page.
+ * The master query engine: answer a question by retrieving across EVERY pipeline —
+ * Laws/Rules/Decisions + News items, the demand-side MARKET timeseries, tracked items,
+ * upcoming comment deadlines, and recent briefs — then one Sonnet call to synthesize
+ * with citations. Shared by the CLI (`query`) and the homepage "Ask the Bean Brief" box.
  * @returns {{ answer: string, hits: object[] }}
  */
 export async function answerQuery(question, env) {
@@ -292,22 +323,35 @@ export async function answerQuery(question, env) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   }
 
+  // 1. Stored items (LRD + News). Keyword hits on the phrase, a per-word fallback if the
+  //    phrase found nothing, and the most recent relevant items UNIONed in so recency
+  //    questions ("what's new this week?") work even without a keyword match.
   const itemHits = store.searchSeenItems(question);
-  // Also grab words individually if the full phrase found nothing.
   const extraHits =
     itemHits.length === 0
       ? question.split(/\s+/).filter((w) => w.length > 3).flatMap((w) => store.searchSeenItems(w, 10))
       : [];
-  const allHits = [...new Map([...itemHits, ...extraHits].map((h) => [h.uid, h])).values()].slice(0, 30);
+  const recent = store.listItems({ verdict: "relevant", days: 30, limit: 20 });
+  const merged = [...new Map([...itemHits, ...extraHits, ...recent].map((h) => [h.uid, h])).values()].slice(0, 30);
+  const compactHits = compactItems(merged);
 
-  // Most recent few briefs as context.
+  // 2. Market data — the structured demand-side timeseries (price, crush, stocks, biofuel
+  //    feedstock share, basis, fund positioning…). This is what makes the DATA queryable
+  //    in plain English, not just visible as charts.
+  const marketBlock = formatMarketSnapshot(store.marketSnapshot());
+
+  // 3. Tracked (pinned) items + upcoming comment deadlines.
+  const tracked = store.listTracked();
+  const deadlines = store.upcomingDeadlines(20);
+
+  // 4. Most recent few briefs as narrative context.
   const briefTexts = [];
   for (const b of store.listBriefs(4)) {
     const p = path.join(store.DATA_DIR, b.path);
     if (fs.existsSync(p)) briefTexts.push(`--- Brief ${b.path} ---\n${fs.readFileSync(p, "utf8").slice(0, 6000)}`);
   }
 
-  if (allHits.length === 0 && briefTexts.length === 0) {
+  if (compactHits.length === 0 && !marketBlock && briefTexts.length === 0) {
     return { answer: "Nothing stored yet matches. Run the pipeline a few times first.", hits: [] };
   }
 
@@ -317,16 +361,22 @@ export async function answerQuery(question, env) {
     model,
     max_tokens: 2000,
     system:
-      "You answer questions for an Iowa Soybean Association policy professional using ONLY the stored monitoring data provided. Cite item titles and URLs (as markdown links) when available. If the stored data doesn't answer the question, say so plainly.",
+      "You are the research assistant for a professional at the Iowa Soybean Association whose remit is BOTH policy and demand/markets. Answer using ONLY the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. Synthesize across streams when it helps — e.g. connect a policy or trade development to the market numbers. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Use plain, professional English. If the stored data doesn't answer the question, say so plainly rather than guessing.",
     messages: [
       {
         role: "user",
-        content: `Question: ${question}\n\nStored items (JSON):\n${JSON.stringify(allHits, null, 1)}\n\nRecent briefs:\n${briefTexts.join("\n\n") || "(none)"}`,
+        content:
+          `Question: ${question}\n\n` +
+          `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
+          `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+          `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
+          `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
+          `=== RECENT BRIEFS ===\n${briefTexts.join("\n\n") || "(none)"}`,
       },
     ],
   });
   store.recordUsage(model, "query", response.usage.input_tokens, response.usage.output_tokens);
-  return { answer: response.content.find((b) => b.type === "text")?.text ?? "(no answer)", hits: allHits };
+  return { answer: response.content.find((b) => b.type === "text")?.text ?? "(no answer)", hits: merged };
 }
 
 export async function runQuery(question, env) {
@@ -335,71 +385,150 @@ export async function runQuery(question, env) {
   console.log("\n" + answer + "\n");
 }
 
-/**
- * Weekly synthesis: one Sonnet call over the week's daily briefs → a trend memo
- * suitable for forwarding to colleagues. Saved as YYYY-MM-DD-weekly.md.
- */
-export async function runWeekly(env) {
-  if (!env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
-  }
-  const watchlist = loadWatchlist();
-  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
+// --- Memo mode ------------------------------------------------------------
+// A "memo" is the master query engine run in report mode: the same cross-stream
+// retrieval (items + market data + tracked + deadlines + briefs), but scoped to a
+// time window and prompted to WRITE a structured memo for a given audience instead
+// of answering a question. Weekly/monthly reports and the on-demand farmer update
+// are all presets of this one engine — no separate feature per report type.
+export const MEMO_PRESETS = {
+  weekly: {
+    label: "Weekly memo",
+    edition: "weekly",
+    scopeDays: 7,
+    maxTokens: 6000,
+    system: (dateLabel) => `You write The Bean Brief's WEEKLY policy & market memo for Iowa Soybean Association colleagues and board members who did not follow the daily flow. Use ONLY the stored monitoring data provided (laws/rules/decisions + news items, the market timeseries, tracked items, comment deadlines, recent briefs). Structure exactly:
 
-  console.log("\n📚 Weekly synthesis: gathering this week's briefs…");
-  const weekAgo = Date.now() - 7 * 86400e3;
-  const weekBriefs = store
-    .listBriefs(30)
-    .filter((b) => Date.parse(b.created_at) >= weekAgo && !b.path.includes("weekly"))
-    .reverse(); // oldest first reads chronologically
-
-  if (weekBriefs.length === 0) {
-    console.log("   No daily briefs from the past week — nothing to synthesize.\n");
-    return;
-  }
-
-  const texts = weekBriefs
-    .map((b) => {
-      const p = path.join(store.DATA_DIR, b.path);
-      return fs.existsSync(p) ? `--- ${path.basename(b.path)} ---\n${fs.readFileSync(p, "utf8").slice(0, 9000)}` : "";
-    })
-    .filter(Boolean);
-
-  console.log(`   Synthesizing ${texts.length} briefs (${env.BRIEF_MODEL || "claude-sonnet-4-6"})…`);
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
-  const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
-  const response = await client.messages.create({
-    model,
-    max_tokens: 6000,
-    system: `You write the Iowa Soybean Association's WEEKLY policy synthesis from the week's daily briefs. Audience: ISA colleagues and board members who did not read the dailies. Structure:
-
-## ISA Weekly Policy Memo — week ending ${dateLabel}
+## The Bean Brief — Weekly Memo (week ending ${dateLabel})
 
 ### The week in three sentences
-### 📈 Developing trends
-What moved this week and what direction it's heading — connect related items across days.
+### 📈 Markets & demand
+What the market data did this week — crush, soybean & soy-oil prices, biofuel feedstock share, basis, fund positioning — with the numbers (name the series + period).
+### 🏛️ Policy & regulatory
+What changed in laws/rules/decisions and why it matters to Iowa soy.
 ### 🔴 What needs attention next week
-Action items: comment deadlines approaching, votes scheduled, rules expected.
+Comment deadlines approaching, votes scheduled, rules expected.
 ### 📋 Everything else worth knowing
 One line each.
 
-Rules: never invent items; every referenced item keeps its markdown link from the source brief; plain professional English, no jargon; omit empty sections.`,
-    messages: [{ role: "user", content: `This week's daily briefs:\n\n${texts.join("\n\n")}` }],
-  });
-  store.recordUsage(model, "weekly", response.usage.input_tokens, response.usage.output_tokens);
-  const markdown = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+Rules: never invent items or numbers; keep every markdown link; cite a market figure with its series + period; plain professional English; omit empty sections.`,
+  },
+  monthly: {
+    label: "Monthly review",
+    edition: "monthly",
+    scopeDays: 30,
+    maxTokens: 6000,
+    system: (dateLabel) => `You write The Bean Brief's MONTHLY policy & market review for Iowa Soybean Association leadership — a higher-altitude "month in review," trends over the month, not a day-by-day list. Use ONLY the stored monitoring data provided. Structure exactly:
 
-  const filePath = saveBrief(markdown, "weekly", timezone);
-  let deliveredTo = [path.relative(store.DATA_DIR, filePath)];
-  if (watchlist.output?.teams !== false) {
-    try {
-      if (await postToTeams(markdown, env)) deliveredTo.push("Teams");
-    } catch (err) {
-      console.log(`⚠️  Teams delivery failed: ${err.message}`);
-    }
+## The Bean Brief — Monthly Review (as of ${dateLabel})
+
+### The month in five sentences
+### 📈 Markets & demand — the trend
+Where crush, prices, biofuel feedstock demand, basis and positioning moved over the month, with the numbers (name the series + period).
+### 🏛️ Policy & regulatory — what shifted
+The month's meaningful rule/bill/court developments and their direction of travel.
+### 🔭 What we're watching
+Comment deadlines, expected rules, decisions on the horizon.
+### 📋 Notable items
+One line each.
+
+Rules: never invent items or numbers; keep every markdown link; cite a market figure with its series + period; plain professional English; omit empty sections.`,
+  },
+  farmer: {
+    label: "Farmer update",
+    edition: "farmer",
+    scopeDays: 7,
+    maxTokens: 3000,
+    system: (dateLabel) => `You write "The Bean Brief for Farmers" — a plain-language, strictly NONPARTISAN update for Iowa Soybean Association farmer-members (not policy insiders). Use ONLY the stored monitoring data. Explain what each development MEANS for a soybean farmer's bottom line — prices, demand, input costs, rules that touch their operation. Structure exactly:
+
+## The Bean Brief for Farmers — ${dateLabel}
+
+### 💵 Markets: what your beans are worth
+Cash price + basis (name the number and date), crush/demand direction, biofuel demand — in plain terms.
+### 🏛️ Policy you should know about
+2–4 items max, plain English, why it matters to your farm.
+### 📅 Dates to know
+Comment deadlines or decisions that affect farmers.
+
+Rules: never invent items or numbers; keep markdown links; nonpartisan and informational ONLY — no advocacy, no "contact your legislator," no partisan framing; keep it short — a farmer reads this in two minutes.`,
+  },
+};
+
+/**
+ * Generate a memo from a preset — the master query engine in report mode. Retrieves
+ * across all streams scoped to the preset's window, one Sonnet call, saved as
+ * YYYY-MM-DD-<edition>.md (so it lists on the homepage and renders at /brief/…).
+ * @returns {{ markdown: string, filePath: string, edition: string }}
+ */
+export async function generateMemo(presetId, env) {
+  if (!env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   }
-  console.log(`\n✅ Saved ${deliveredTo.join(" · posted to ")}\n`);
+  const preset = MEMO_PRESETS[presetId];
+  if (!preset) {
+    throw new Error(`Unknown memo preset "${presetId}" — choose one of: ${Object.keys(MEMO_PRESETS).join(", ")}`);
+  }
+
+  const watchlist = loadWatchlist();
+  const timezone = watchlist.briefEditions?.timezone ?? "America/Chicago";
+  const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+
+  // Retrieve across all streams, scoped to the preset's window (memo mode).
+  // Official items are triaged (verdict=relevant); news items are never triaged
+  // (verdict=unscored) so we pull them by class rather than by verdict.
+  const official = store.listItems({ verdict: "relevant", days: preset.scopeDays, sourceIds: sourceIdsForClass("official"), limit: 50 });
+  const news = store.listItems({ days: preset.scopeDays, sourceIds: sourceIdsForClass("news"), limit: 30 });
+  const compactHits = compactItems([...official, ...news]);
+  const marketBlock = formatMarketSnapshot(store.marketSnapshot());
+  const tracked = store.listTracked();
+  const deadlines = store.upcomingDeadlines(20);
+
+  // Daily briefs within the window (never fold memos back into memos).
+  const cutoff = Date.now() - preset.scopeDays * 86400e3;
+  const briefTexts = [];
+  for (const b of store.listBriefs(40)) {
+    if (Date.parse(b.created_at) < cutoff) continue;
+    if (/-(weekly|monthly|farmer)\.md$/.test(b.path)) continue;
+    const p = path.join(store.DATA_DIR, b.path);
+    if (fs.existsSync(p)) briefTexts.push(`--- ${path.basename(b.path)} ---\n${fs.readFileSync(p, "utf8").slice(0, 9000)}`);
+  }
+
+  const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
+  console.log(`\n📝 ${preset.label}: ${official.length + news.length} items + ${marketBlock ? "market data" : "no market data"} over the last ${preset.scopeDays}d (${model})…`);
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const response = await client.messages.create({
+    model,
+    max_tokens: preset.maxTokens,
+    system: preset.system(dateLabel),
+    messages: [
+      {
+        role: "user",
+        content:
+          `Stored monitoring data for the last ${preset.scopeDays} days — write the memo per your instructions.\n\n` +
+          `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
+          `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
+          `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
+          `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
+          `=== DAILY BRIEFS IN WINDOW ===\n${briefTexts.join("\n\n") || "(none)"}`,
+      },
+    ],
+  });
+  store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens);
+  const markdown = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+  const filePath = saveBrief(markdown, preset.edition, timezone);
+  return { markdown, filePath, edition: preset.edition };
+}
+
+/** Generate + save a memo preset (CLI + web + scheduler entry point). */
+export async function runMemo(presetId, env) {
+  const { filePath } = await generateMemo(presetId, env);
+  console.log(`\n✅ Saved ${path.relative(store.DATA_DIR, filePath)}\n`);
+}
+
+/** The Friday weekly memo — now a preset of the memo engine (kept for the scheduler + CLI). */
+export async function runWeekly(env) {
+  return runMemo("weekly", env);
 }
 
 export async function runAudit() {

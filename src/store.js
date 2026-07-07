@@ -199,6 +199,39 @@ export function listSeriesMeta(category = null) {
     : db.prepare("SELECT * FROM market_series_meta ORDER BY category, label").all();
 }
 
+/**
+ * Compact snapshot of every market series — latest value, prior value, absolute/percent
+ * change, and a short recent trail — for the master query engine (makes the demand-side
+ * timeseries answerable in plain English, not just visible as charts). Small by design
+ * (~13 series), so it's cheap to hand the LLM the whole board on every question.
+ */
+export function marketSnapshot() {
+  const metas = db.prepare("SELECT series, label, unit, category FROM market_series_meta ORDER BY category, label").all();
+  const out = [];
+  for (const m of metas) {
+    const pts = db
+      .prepare("SELECT period, value FROM market_series WHERE series = ? ORDER BY period DESC LIMIT 6")
+      .all(m.series);
+    if (!pts.length) continue;
+    const latest = pts[0];
+    const previous = pts[1] ?? null;
+    const changeAbs = previous ? latest.value - previous.value : null;
+    const changePct = previous && previous.value ? ((latest.value - previous.value) / Math.abs(previous.value)) * 100 : null;
+    out.push({
+      series: m.series,
+      label: m.label,
+      unit: m.unit,
+      category: m.category,
+      latest,
+      previous,
+      changeAbs,
+      changePct,
+      trail: pts.slice().reverse(), // oldest→newest, for a quick trend read
+    });
+  }
+  return out;
+}
+
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,

@@ -1,16 +1,28 @@
-// open_meteo.js — free global weather (no key). A South-American soybean-region crop-stress
-// read, powering the SA-Weather market signal ported from the co-work app (which had wanted
-// paid Tomorrow.io). Emits one "markets"-class item/day; raw carries per-region detail.
+// open_meteo.js — free global weather (no key). A soybean-growing-region crop-stress read
+// for BOTH the U.S. Corn Belt (Iowa + neighbors — the domestic yield signal) and South
+// America (Brazil/Argentina — the competitor-supply signal). Emits one "markets"-class item
+// per region-group/day; raw carries per-region detail.
 //
 // Stress heuristic (transparent, refine later): drier-than-normal + hotter = more stress.
+// A true climatology-based anomaly needs normals (e.g. PRISM) — deferred; these fixed
+// thresholds are a usable current-conditions gauge in the meantime.
 
 import { fetchJSON } from "../util.js";
 
 export const id = "open_meteo";
-export const label = "Open-Meteo (S. American weather)";
+export const label = "Open-Meteo (crop weather)";
 
-// Key soybean-growing regions in Brazil + Argentina.
-const REGIONS = [
+// Key U.S. soybean-growing regions (Iowa-centric).
+const US_REGIONS = [
+  { name: "Central Iowa", lat: 41.88, lon: -93.6 },
+  { name: "NW Iowa", lat: 43.0, lon: -95.6 },
+  { name: "SE Iowa", lat: 41.0, lon: -91.5 },
+  { name: "Illinois", lat: 40.0, lon: -89.0 },
+  { name: "Minnesota", lat: 44.5, lon: -94.5 },
+];
+
+// Key soybean-growing regions in Brazil + Argentina (competitor supply).
+const SA_REGIONS = [
   { name: "Mato Grosso (BR)", lat: -12.55, lon: -55.71 },
   { name: "Rio Grande do Sul (BR)", lat: -28.26, lon: -52.41 },
   { name: "Pampas (AR)", lat: -33.89, lon: -60.57 },
@@ -37,32 +49,39 @@ async function regionStress(r) {
   };
 }
 
-export async function fetchItems() {
-  const regions = [];
-  for (const r of REGIONS) {
+/** Build one aggregated crop-weather item for a group of regions, or null if all failed. */
+async function groupItem(regions, scopeLabel, metricTag, jurisdiction) {
+  const results = [];
+  for (const r of regions) {
     try {
-      regions.push(await regionStress(r));
+      results.push(await regionStress(r));
     } catch {
-      /* one region failing never kills the source */
+      /* one region failing never kills the group */
     }
   }
-  if (!regions.length) return [];
-  const overallIndex = Math.round(regions.reduce((a, b) => a + b.stressIndex, 0) / regions.length);
-  const worst = regions.reduce((a, b) => (b.stressIndex > a.stressIndex ? b : a));
+  if (!results.length) return null;
+  const overallIndex = Math.round(results.reduce((a, b) => a + b.stressIndex, 0) / results.length);
+  const worst = results.reduce((a, b) => (b.stressIndex > a.stressIndex ? b : a));
   const date = new Date().toISOString().slice(0, 10);
+  return {
+    uid: `${id}:${metricTag}:${date}`,
+    sourceId: id,
+    sourceLabel: label,
+    title: `${scopeLabel} soybean weather — stress index ${overallIndex}/100 (worst: ${worst.name} at ${worst.stressIndex})`,
+    summary: results.map((r) => `${r.name}: stress ${r.stressIndex}, ${r.precip14mm}mm/14d, ${r.avgTmaxC}°C, ${r.forecast}`).join(" · "),
+    url: "https://open-meteo.com/",
+    publishedAt: new Date().toISOString(),
+    jurisdiction,
+    docType: "data",
+    raw: { metric: metricTag, overallIndex, regions: results },
+  };
+}
 
-  return [
-    {
-      uid: `${id}:sa:${date}`,
-      sourceId: id,
-      sourceLabel: label,
-      title: `S. American soybean weather — stress index ${overallIndex}/100 (worst: ${worst.name} at ${worst.stressIndex})`,
-      summary: regions.map((r) => `${r.name}: stress ${r.stressIndex}, ${r.precip14mm}mm/14d, ${r.avgTmaxC}°C, ${r.forecast}`).join(" · "),
-      url: "https://open-meteo.com/",
-      publishedAt: new Date().toISOString(),
-      jurisdiction: "International",
-      docType: "data",
-      raw: { metric: "sa_weather", overallIndex, regions },
-    },
-  ];
+export async function fetchItems() {
+  const items = [];
+  const us = await groupItem(US_REGIONS, "U.S. Corn Belt", "us_weather", "US");
+  if (us) items.push(us);
+  const sa = await groupItem(SA_REGIONS, "S. American", "sa", "International");
+  if (sa) items.push(sa);
+  return items;
 }

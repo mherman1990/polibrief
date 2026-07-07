@@ -62,6 +62,32 @@ export async function fetchItems({ sourceConfig = {}, env = process.env }) {
       raw: { metric: q.key, value: rec.Value, unit: q.unit, period, shortDesc: rec.short_desc },
     });
   }
+
+  // Current Iowa soybean crop condition (% good+excellent) — a member-facing "how's the crop
+  // right now" read. In-season only (empty off-season → skipped).
+  try {
+    const p = new URLSearchParams({ key, format: "JSON", year__GE: String(new Date().getFullYear()), commodity_desc: "SOYBEANS", statisticcat_desc: "CONDITION", state_alpha: "IA" });
+    const data = await fetchJSON(`${BASE}?${p}`);
+    const ge = (data.data ?? []).filter((r) => r.unit_desc === "PCT GOOD" || r.unit_desc === "PCT EXCELLENT");
+    const latestWeek = ge.map((r) => r.week_ending).filter(Boolean).sort().pop();
+    if (latestWeek) {
+      const pct = ge.filter((r) => r.week_ending === latestWeek).reduce((a, r) => a + (Number(r.Value) || 0), 0);
+      items.push({
+        uid: `${id}:ia-condition:${latestWeek}`,
+        sourceId: id,
+        sourceLabel: label,
+        title: `Iowa soybeans ${pct}% good/excellent (week ending ${latestWeek})`,
+        summary: "USDA NASS Crop Progress — Iowa soybean condition (% good + excellent).",
+        url: "https://quickstats.nass.usda.gov/",
+        publishedAt: new Date(latestWeek).toISOString(),
+        jurisdiction: "Iowa",
+        docType: "data",
+        raw: { metric: "ia-condition", value: pct, unit: "% G/E", period: latestWeek },
+      });
+    }
+  } catch {
+    /* fail-soft — condition is in-season only */
+  }
   return items;
 }
 
@@ -104,6 +130,33 @@ export async function fetchSeries({ env = process.env } = {}) {
     }
     const points = [...pts.entries()].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period));
     if (points.length) out.push({ series: s.key, meta: { label: s.label, unit: s.unit, category: s.category }, points });
+  }
+
+  // Crop condition (% Good + Excellent), weekly in-season — the primary in-season signal
+  // (weather's fingerprint on yield). Reported per condition class per week_ending; we sum
+  // PCT GOOD + PCT EXCELLENT for each week. Iowa vs. U.S. share one chart.
+  const CONDITION_SCOPES = [
+    { key: "nass:ia:condition", label: "Iowa", params: { state_alpha: "IA" } },
+    { key: "nass:us:condition", label: "U.S.", params: { agg_level_desc: "NATIONAL" } },
+  ];
+  for (const s of CONDITION_SCOPES) {
+    const p = new URLSearchParams({ key, format: "JSON", year__GE: String(yearGE), commodity_desc: "SOYBEANS", statisticcat_desc: "CONDITION", ...s.params });
+    let data;
+    try {
+      data = await fetchJSON(`${BASE}?${p}`);
+    } catch {
+      continue;
+    }
+    const byWeek = new Map();
+    for (const r of data.data ?? []) {
+      if (r.unit_desc !== "PCT GOOD" && r.unit_desc !== "PCT EXCELLENT") continue;
+      const wk = r.week_ending; // "YYYY-MM-DD"
+      const val = Number(String(r.Value).replace(/,/g, ""));
+      if (!wk || !Number.isFinite(val)) continue;
+      byWeek.set(wk, (byWeek.get(wk) ?? 0) + val);
+    }
+    const points = [...byWeek.entries()].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period));
+    if (points.length) out.push({ series: s.key, meta: { label: s.label, unit: "% good/excellent", category: "soy_condition" }, points });
   }
   return out;
 }

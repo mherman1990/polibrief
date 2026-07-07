@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.6.0 — Master query engine · on-demand memos · interactive charts · more market data
+
+### Added
+- **Ask across everything** — the homepage "Ask the Bean Brief" box now retrieves across all
+  streams in one call: Laws/Rules/Decisions + News items, the **market timeseries** (price,
+  crush, stocks, feedstock share, basis, fund positioning, exports, barge freight, weather),
+  tracked items, comment deadlines, and recent briefs — so answers can connect a policy or
+  trade development to the market numbers, with citations.
+- **On-demand memos (memo mode)** — the same engine, scoped to a window and told to write a
+  report: **Weekly memo**, **Monthly review**, and a plain-language, strictly nonpartisan
+  **Farmer update**. Buttons on the homepage; `memo <weekly|monthly|farmer>` on the CLI.
+- **Interactive Markets charts** — charts are now rendered with uPlot: **hover to read the
+  exact value + date**, with real axes and gridlines. Seven charts, each with a CSV download.
+- **New market data (Markets tab):**
+  - **Soybean export inspections** + **net export sales** (USDA Ag Transport / Socrata) — a
+    live stand-in for the FAS Export Sales report while its API is offline.
+  - **Mississippi barge freight** ($/ton) — a driver of the Gulf export basis.
+  - **U.S. soybean crop condition** (% good/excellent, Iowa vs. U.S.) — the in-season signal.
+  - **U.S. Corn Belt weather** — a domestic crop-stress read alongside South America.
+
+### Changed
+- The **twice-daily farmer twin is retired** — the farmer update is now the on-demand `farmer`
+  memo preset (generated when asked, over a chosen window), so scheduled runs never pay for it.
+- The weekly memo now spans markets + news + items, not just the week's briefs.
+
 ## 1.5.0 — Markets dashboard (charts + CSV) · homepage search · more sources
 
 ### Added

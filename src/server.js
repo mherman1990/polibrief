@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import * as store from "./store.js";
-import { runPipeline, runWeekly, answerQuery, loadWatchlist, saveWatchlist } from "./pipeline.js";
+import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist } from "./pipeline.js";
 import { adapters, sourceIdsForClass } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
 import { summarizeItem, summaryExpiry } from "./summarize.js";
@@ -82,6 +82,10 @@ export function markdownToHtml(md) {
 }
 
 // ---------- page shell ----------
+// Cache-buster for static assets: long-lived cache-control on the files, but a token in
+// the URL that changes every restart/deploy so a new version is never served stale.
+const ASSET_VER = Date.now().toString(36);
+
 function page(title, body) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -164,6 +168,10 @@ function page(title, body) {
   pre.logs { background: #f3f6f9; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
     font-size: .8rem; overflow-x: auto; white-space: pre-wrap; color: var(--ink); }
   .fb { opacity: .55; } .fb.on { opacity: 1; }
+  .bbchart-box { margin: 8px 0 6px; min-height: 60px; }
+  .u-legend { font-size: .82em; margin-top: 6px; }
+  .u-legend .u-marker { width: 10px; height: 10px; }
+  .u-title { color: var(--isa-dark); font-weight: 600; }
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
@@ -174,7 +182,7 @@ ${body}
 </body></html>`;
 }
 
-const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly)(-farmer)?\.md$/;
+const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer)(-farmer)?\.md$/;
 
 // ---------- run management ----------
 let runInProgress = false;
@@ -184,7 +192,7 @@ async function triggerRun(edition) {
   if (runInProgress) return "A run is already in progress — give it a minute.";
   runInProgress = true;
   try {
-    if (edition === "weekly") await runWeekly(process.env);
+    if (["weekly", "monthly", "farmer"].includes(edition)) await runMemo(edition, process.env);
     else await runPipeline({ edition, env: process.env });
     lastRunProblem = null;
     return null;
@@ -411,7 +419,9 @@ function homeBody(notice, openId = null, search = null) {
       const label = name
         .replace(".md", "")
         .replace(/-(am|pm)$/, (m) => m.replace("-", " · ").toUpperCase())
-        .replace(/-weekly$/, " · 📚 WEEKLY");
+        .replace(/-weekly$/, " · 📚 WEEKLY")
+        .replace(/-monthly$/, " · 🗓️ MONTHLY")
+        .replace(/-farmer$/, " · 🌾 FARMER");
       return `<li><a href="/brief/${encodeURIComponent(name)}">${esc(label)}</a> <span class="muted">${esc(
         fmtCT(b.created_at)
       )}</span></li>`;
@@ -428,10 +438,10 @@ function homeBody(notice, openId = null, search = null) {
 
   const searchSection = `<h2 style="margin-bottom:2px">🔎 Ask the Bean Brief</h2>
 <form method="get" action="/" class="toolbar">
-  <input type="text" name="q" placeholder='e.g. "what happened with 45Z guidance?" or "China soybean demand"' value="${esc(search?.q ?? "")}" style="min-width:340px">
+  <input type="text" name="q" placeholder='e.g. "how is soybean crush trending?" or "connect 45Z guidance to feedstock demand"' value="${esc(search?.q ?? "")}" style="min-width:340px">
   <button>Ask</button>
 </form>
-<p class="muted" style="margin-top:0">Answers draw on everything stored — Laws/Rules/Decisions + News + briefs — with links. One Sonnet call (~a cent) per question.</p>
+<p class="muted" style="margin-top:0">Answers draw on everything stored — Laws/Rules/Decisions + News + Markets data + briefs — with links. One Sonnet call (~a cent) per question.</p>
 ${search?.error ? `<div class="banner err">⚠️ ${esc(search.error)}</div>` : ""}
 ${search?.result ? `<div class="answer">${markdownToHtml(search.result.answer)}</div>` : ""}
 <hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:16px 0">`;
@@ -443,7 +453,9 @@ ${searchSection}
 <p>
   <form method="post" action="/run"><input type="hidden" name="edition" value="am"><button>▶ Run AM brief now</button></form>
   <form method="post" action="/run"><input type="hidden" name="edition" value="pm"><button>▶ Run PM brief now</button></form>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="weekly"><button class="ghost">📚 Weekly memo now</button></form>
+  <form method="post" action="/run"><input type="hidden" name="edition" value="weekly"><button class="ghost">📚 Weekly memo</button></form>
+  <form method="post" action="/run"><input type="hidden" name="edition" value="monthly"><button class="ghost">🗓️ Monthly review</button></form>
+  <form method="post" action="/run"><input type="hidden" name="edition" value="farmer"><button class="ghost">🌾 Farmer update</button></form>
   ${runInProgress ? '<span class="muted"> a run is in progress…</span>' : ""}
 </p>
 <h2>Saved briefs <span class="muted" style="font-weight:400;font-size:.7em">(<a href="/feed.xml">RSS</a>)</span></h2>
@@ -563,79 +575,46 @@ function newsBody() {
     ${feedRows("news", "No news items yet — they appear once the pipeline runs with the collector (email_intake) enabled on the Pi.")}`;
 }
 
-// Dependency-light stacked-area chart (inline SVG) — shows each series' share of the total
-// over time. seriesList: [{ label, unit, points:[{period,value}] }].
-const CHART_COLORS = ["#004A8D", "#FFC425", "#0070C3", "#e07a2c", "#6aa84f", "#9AB8D2", "#c0392b", "#8e7cc3", "#A5C6E3"];
-function stackedAreaSVG(seriesList, { width = 700, height = 300, months = 72 } = {}) {
-  const W = width, H = height, padL = 46, padB = 26, padT = 10, padR = 10;
-  let periods = [...new Set(seriesList.flatMap((s) => s.points.map((p) => p.period)))].sort().slice(-months);
-  const n = periods.length;
-  if (n < 2) return '<p class="muted">Not enough history yet.</p>';
-  const vals = seriesList.map((s) => { const m = new Map(s.points.map((p) => [p.period, p.value])); return periods.map((p) => Number(m.get(p) ?? 0)); });
-  const cum = new Array(n).fill(0);
-  const bands = vals.map((row) => { const bottom = cum.slice(); for (let i = 0; i < n; i++) cum[i] += row[i]; return { bottom, top: cum.slice() }; });
-  const maxY = Math.max(...cum, 1);
-  const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
-  const y = (v) => H - padB - (v / maxY) * (H - padB - padT);
-  const polys = bands.map((b, si) => {
-    const top = periods.map((_, i) => `${x(i).toFixed(1)},${y(b.top[i]).toFixed(1)}`).join(" ");
-    const bot = periods.map((_, i) => `${x(i).toFixed(1)},${y(b.bottom[i]).toFixed(1)}`).reverse().join(" ");
-    return `<polygon points="${top} ${bot}" fill="${CHART_COLORS[si % CHART_COLORS.length]}" fill-opacity="0.9" stroke="#fff" stroke-width="0.4"/>`;
-  }).join("");
-  const axis = `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#ccc"/>` +
-    `<text x="${padL}" y="${H - 8}" font-size="10" fill="#666">${esc(periods[0])}</text>` +
-    `<text x="${W - padR}" y="${H - 8}" font-size="10" fill="#666" text-anchor="end">${esc(periods[n - 1])}</text>` +
-    `<text x="4" y="${padT + 8}" font-size="10" fill="#666">${Math.round(maxY).toLocaleString()}</text>`;
-  const legend = seriesList.map((s, si) => `<span style="display:inline-block;margin:2px 10px 2px 0;font-size:.8em"><span style="display:inline-block;width:11px;height:11px;background:${CHART_COLORS[si % CHART_COLORS.length]};border-radius:2px;vertical-align:middle"></span> ${esc(s.label)}</span>`).join("");
-  const unit = seriesList[0]?.unit || "";
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;height:auto" role="img"><rect width="${W}" height="${H}" fill="#fff"/>${polys}${axis}</svg>
-    <div class="muted" style="font-size:.75em">units: ${esc(unit)}/month</div><div style="margin-top:4px">${legend}</div>`;
-}
-
-// Multi-line chart (inline SVG) for same-unit series (price, crush, stocks…).
-function lineChartSVG(seriesList, { width = 700, height = 240, months = 120 } = {}) {
-  const W = width, H = height, padL = 54, padB = 26, padT = 10, padR = 10;
-  const periods = [...new Set(seriesList.flatMap((s) => s.points.map((p) => p.period)))].sort().slice(-months);
-  const n = periods.length;
-  if (n < 2) return '<p class="muted">Not enough history yet.</p>';
-  const vals = seriesList.flatMap((s) => s.points.map((p) => p.value));
-  const maxY = Math.max(...vals), minY = Math.min(0, ...vals);
-  const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
-  const y = (v) => H - padB - ((v - minY) / (maxY - minY || 1)) * (H - padB - padT);
-  const lines = seriesList.map((s, si) => {
-    const m = new Map(s.points.map((p) => [p.period, p.value]));
-    const pts = periods.map((p, i) => (m.has(p) ? `${x(i).toFixed(1)},${y(m.get(p)).toFixed(1)}` : null)).filter(Boolean).join(" ");
-    return `<polyline points="${pts}" fill="none" stroke="${CHART_COLORS[si % CHART_COLORS.length]}" stroke-width="2"/>`;
-  }).join("");
-  const axis = `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#ccc"/>` +
-    `<text x="${padL}" y="${H - 8}" font-size="10" fill="#666">${esc(periods[0])}</text>` +
-    `<text x="${W - padR}" y="${H - 8}" font-size="10" fill="#666" text-anchor="end">${esc(periods[n - 1])}</text>` +
-    `<text x="4" y="${padT + 8}" font-size="10" fill="#666">${Math.round(maxY).toLocaleString()}</text>`;
-  const legend = seriesList.length > 1
-    ? `<div style="margin-top:4px">${seriesList.map((s, si) => `<span style="display:inline-block;margin-right:10px;font-size:.8em"><span style="display:inline-block;width:12px;height:3px;background:${CHART_COLORS[si % CHART_COLORS.length]};vertical-align:middle"></span> ${esc(s.label)}</span>`).join("")}</div>`
-    : "";
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;height:auto" role="img"><rect width="${W}" height="${H}" fill="#fff"/>${axis}${lines}</svg><div class="muted" style="font-size:.75em">units: ${esc(seriesList[0]?.unit || "")}</div>${legend}`;
-}
-
-function chartSection(category, title, desc, renderer) {
-  const series = store.listSeriesMeta(category).map((m) => ({ label: m.label, unit: m.unit, points: store.getSeries(m.series) }));
-  if (!series.length || !series.some((s) => s.points.length)) return "";
+// A Markets chart = a container div + a JSON blob of its series, rendered client-side
+// by uPlot (assets/bbcharts.js) into an interactive line chart with a live hover legend
+// (month + value), real time axes and gridlines. Dependency-light: uPlot is one vendored
+// static file, no build step. The `⬇ CSV` link still exports the exact numbers.
+function chartSection(category, title, desc, height = 300) {
+  const series = store
+    .listSeriesMeta(category)
+    .map((m) => ({ label: m.label, unit: m.unit, points: store.getSeries(m.series) }))
+    .filter((s) => s.points.length);
+  if (!series.length) return "";
+  const unit = series[0].unit || "";
+  const id = `chart_${category}`;
+  // Escape "<" inside the JSON so nothing can break out of the <script> element.
+  const spec = JSON.stringify({ unit, height, series }).replace(/</g, "\\u003c");
   return `<h2 style="margin-bottom:2px">${title}
       <a class="ghost tiny" href="/markets/csv?category=${category}" style="font-size:.65em;vertical-align:middle">⬇ CSV</a></h2>
-    <p class="muted" style="margin-top:0">${desc}</p>${renderer(series)}`;
+    <p class="muted" style="margin-top:0">${desc}</p>
+    <div class="bbchart-box" id="${id}"><p class="muted">Loading chart…</p></div>
+    <script class="bbchart" type="application/json" data-target="${id}">${spec}</script>`;
 }
 
 function marketsBody() {
   const charts = [
-    chartSection("biofuel_feedstock", "Biofuel feedstock market share", "Lipid feedstocks in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…).", stackedAreaSVG),
-    chartSection("soy_price", "Soybean price received", "Monthly average price ($/bu) — Iowa vs. U.S.", lineChartSVG),
-    chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, at record highs on renewable-diesel demand.", lineChartSVG),
-    chartSection("soy_stocks", "U.S. soybean stocks", "Quarterly ending stocks — the supply cushion behind price.", lineChartSVG),
+    chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
+    chartSection("soy_price", "Soybean price received", "Monthly average price ($/bu) — Iowa vs. U.S.", 260),
+    chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, near record highs on renewable-diesel demand.", 260),
+    chartSection("soy_stocks", "U.S. soybean stocks", "Quarterly ending stocks — the supply cushion behind price.", 260),
+    chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
+    chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
+    chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
   ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
+  // Load uPlot + our renderer only on this page, after the chart blobs are in the DOM.
+  const chartAssets = charts
+    ? `<link rel="stylesheet" href="/assets/uPlot.min.css?v=${ASSET_VER}"><script src="/assets/uPlot.iife.min.js?v=${ASSET_VER}"></script><script src="/assets/bbcharts.js?v=${ASSET_VER}"></script>`
+    : "";
   return `<h1>📈 Markets &amp; Demand</h1>
     ${charts || '<p class="muted">Charts populate after a run (or <code>market-refresh</code>) once the USDA/EIA keys are set.</p>'}
     <h2 style="margin-top:22px">Latest data points</h2>
-    ${feedRows("markets", "No markets data yet — set the USDA/EIA API keys and the demand adapters populate this tab.")}`;
+    ${feedRows("markets", "No markets data yet — set the USDA/EIA API keys and the demand adapters populate this tab.")}
+    ${chartAssets}`;
 }
 
 function itemsBody(params, notice) {
@@ -907,11 +886,24 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         return;
       }
 
-      // static brand asset (public — loads on the login page too)
-      if (req.method === "GET" && url.pathname === "/assets/isa-logo-main.png") {
+      // static assets (public — load on the login page too). Whitelisted: the brand
+      // logo + the vendored uPlot charting lib + our chart renderer.
+      if (req.method === "GET" && url.pathname.startsWith("/assets/")) {
+        const ASSETS = {
+          "isa-logo-main.png": "image/png",
+          "uPlot.min.css": "text/css; charset=utf-8",
+          "uPlot.iife.min.js": "text/javascript; charset=utf-8",
+          "bbcharts.js": "text/javascript; charset=utf-8",
+        };
+        const name = url.pathname.slice("/assets/".length);
+        const ctype = ASSETS[name];
+        if (!ctype) {
+          res.writeHead(404, { "content-type": "text/plain" }).end("not found");
+          return;
+        }
         try {
-          const buf = fs.readFileSync(new URL("./assets/isa-logo-main.png", import.meta.url));
-          res.writeHead(200, { "content-type": "image/png", "cache-control": "public, max-age=86400" });
+          const buf = fs.readFileSync(new URL("./assets/" + name, import.meta.url));
+          res.writeHead(200, { "content-type": ctype, "cache-control": "public, max-age=86400" });
           res.end(buf);
         } catch {
           res.writeHead(404, { "content-type": "text/plain" }).end("not found");
@@ -1079,7 +1071,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       // ----- actions -----
       if (req.method === "POST" && url.pathname === "/run") {
         const form = await readForm(req);
-        const edition = ["am", "pm", "weekly"].includes(form.get("edition")) ? form.get("edition") : "am";
+        const edition = ["am", "pm", "weekly", "monthly", "farmer"].includes(form.get("edition")) ? form.get("edition") : "am";
         triggerRun(edition).then((problem) => {
           if (problem) console.log(`⚠️  ${problem}`);
         });
