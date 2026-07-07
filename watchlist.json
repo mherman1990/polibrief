@@ -100,6 +100,11 @@
       "enabled": true,
       "maxItemsPerRun": 5,
       "_note": "Markets tab — U.S. Drought Monitor (no key): Iowa % area in drought (D1+) and abnormally dry+ (D0+)."
+    },
+    "ibge_brazil": {
+      "enabled": true,
+      "maxItemsPerRun": 3,
+      "_note": "Markets — IBGE SIDRA (no key): Brazil soybean production + area (LSPA 1618). Competitor-supply signal; queryable series (no chart — needs PAM 1612 for long history)."
     }
   },
   "focusAreas": [

@@ -45,7 +45,7 @@ trend retrieval) is already done + committed (`0200cfd`).
   Progressive Farmer, Successful Farming — as `feed`-kind channels on news entities (mirror the
   existing feed-* entities). Verify each URL returns items via the rss adapter fetch; drop any
   that 403/404 (note in log). Files: `registry.json`.
-- [ ] **Q5 — Brazil IBGE SIDRA adapter** (`src/adapters/ibge_brazil.js`, keyless).
+- [x] **Q5 — Brazil IBGE SIDRA adapter** (`src/adapters/ibge_brazil.js`, keyless).
   IBGE SIDRA REST (`https://servicodados.ibge.gov.br/api/v3/agregados/...` LSPA soybean
   production/area). Series: Brazil soybean **production (t)** + **area (ha)**, category
   `brazil_soy`; `fetchItems` = latest. Confirm the exact aggregate/variable IDs live (LSPA =
@@ -85,4 +85,8 @@ trend retrieval) is already done + committed (`0200cfd`).
   New adapters need their `watchlist.json` source **merged into the Pi's `/data/watchlist.json`**
   (same `docker exec node -e` pattern as agtransport) + `market-refresh`.
 - **Eyeball the new charts** on the Markets tab and the education brief for tone/quality.
-- **Decide** on any `[!]` blocked items (CME/WASDE/IBGE) — whether to invest the extra parsing.
+- **Decide** on any `[!]` blocked items (CME/WASDE) — whether to invest the extra parsing.
+- **(Optional) Brazil production trend chart:** Q5 (IBGE) shipped as queryable series/items but with
+  only ~2 crop-year points (LSPA 1618). For a real multi-year Brazil soybean production trend chart,
+  add PAM aggregate **1612** (final annual production, long history) as a second IBGE series — one
+  more adapter query once someone confirms 1612's product-classification id.

@@ -60,3 +60,15 @@ entities to `registry.json` (registry.json was git-clean → safe to edit + comm
 Report") — one farmdoc call hit a transient undici connect-timeout but retried fine (https.get probe
 had 200; the feed is good). Files: registry.json + queue/log. Punch-list updated (pull new
 registry.json → Pi /data). Next: Q5 (Brazil IBGE SIDRA adapter).
+
+**Wake 5 — Q5 Brazil IBGE SIDRA — ✅ DONE (scoped).** Keyless `src/adapters/ibge_brazil.js`. API
+mechanics resolved in 3 probes: direct guess 500'd → pulled aggregate **1618** metadata (var **35**
+Produção/t, **216** Área colhida/ha; Produto Soja = class **48[39443]**; the time axis is crop year,
+class **49**) → corrected query 200. Series `ibge_brazil:soy-production` (brazil_soy) + `:soy-area`
+(brazil_soy_area). **Test:** item "Brazil soybean production (2026 crop): 174.6M metric tons"; series
+production 2025=166.1M / 2026=174.6M t (record), area 2025=47.7M / 2026=48.3M ha; market-refresh → 25
+series. **SCOPING CALL:** LSPA 1618 only exposes ~2 crop years, so I shipped it as **queryable series +
+items (no chart)** per "charts are secondary" rather than a thin 2-point chart — the Ask box/education
+engine now has Brazil's competitor crop size + YoY. A real multi-year Brazil production trend chart
+needs PAM aggregate 1612 (added to Punch-list). Files: ibge_brazil.js, adapters/index.js, watchlist.json,
++ queue/log. Next: Q6 (education brief mode — depends on Q3 curriculum).
