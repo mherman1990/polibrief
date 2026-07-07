@@ -284,6 +284,80 @@ export function seriesHistory(series) {
   return { ...meta, points };
 }
 
+// ---------- curriculum + glossary (BeanBrief education engine) ----------
+// The knowledge base behind the "teach, don't tell" education layer: a rotating concept
+// bank (drives the daily brief's teaching thread) + a plain-language glossary. See
+// docs/beanbrief_education_engine.md §3/§5d.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS concepts (
+    id            TEXT PRIMARY KEY,
+    title         TEXT NOT NULL,
+    body          TEXT NOT NULL,
+    domain        TEXT,
+    season_window TEXT,        -- JSON array of months 1..12, or "*" = timely any time
+    last_used     TEXT
+  );
+  CREATE TABLE IF NOT EXISTS glossary (
+    term       TEXT PRIMARY KEY,
+    definition TEXT NOT NULL
+  );
+`);
+
+/** Insert/replace a concept, preserving its last_used across re-seeds (idempotent seeding). */
+export function upsertConcept(c) {
+  db.prepare(
+    `INSERT INTO concepts (id, title, body, domain, season_window, last_used)
+       VALUES (@id, @title, @body, @domain, @season_window, NULL)
+     ON CONFLICT(id) DO UPDATE SET
+       title = excluded.title, body = excluded.body,
+       domain = excluded.domain, season_window = excluded.season_window`
+  ).run({
+    id: c.id,
+    title: c.title,
+    body: c.body,
+    domain: c.domain ?? null,
+    season_window: JSON.stringify(c.seasonWindow ?? c.season_window ?? "*"),
+  });
+  return c.id;
+}
+
+export function listConcepts() {
+  return db.prepare("SELECT * FROM concepts ORDER BY domain, title").all();
+}
+
+/**
+ * Season-aware, least-recently-used concept pick for the daily teaching thread.
+ * Filters to concepts timely for `month` (1..12; season_window "*" = always eligible),
+ * picks the least-recently-used, stamps last_used, and returns it.
+ */
+export function pickConcept(month = new Date().getUTCMonth() + 1) {
+  const all = db.prepare("SELECT * FROM concepts").all();
+  const eligible = all.filter((c) => {
+    let w;
+    try { w = JSON.parse(c.season_window); } catch { w = "*"; }
+    return w === "*" || (Array.isArray(w) && w.includes(month));
+  });
+  const pool = eligible.length ? eligible : all;
+  if (!pool.length) return null;
+  pool.sort((a, b) => (a.last_used ?? "").localeCompare(b.last_used ?? "")); // never-used (NULL/"") first
+  const pick = pool[0];
+  db.prepare("UPDATE concepts SET last_used = ? WHERE id = ?").run(new Date().toISOString(), pick.id);
+  return pick;
+}
+
+export function upsertGlossaryTerm(term, definition) {
+  db.prepare(
+    `INSERT INTO glossary (term, definition) VALUES (?, ?)
+     ON CONFLICT(term) DO UPDATE SET definition = excluded.definition`
+  ).run(term, definition);
+}
+export function getGlossary() {
+  return db.prepare("SELECT term, definition FROM glossary ORDER BY term").all();
+}
+export function getTerm(term) {
+  return db.prepare("SELECT term, definition FROM glossary WHERE term = ? COLLATE NOCASE").get(term);
+}
+
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,

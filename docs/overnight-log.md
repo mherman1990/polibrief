@@ -35,3 +35,16 @@ doesn't always reap node.exe) → a stale server serves OLD code and the check l
 used: kill by port via `netstat -ano | grep LISTENING | grep :PORT` → `taskkill //F //PID`, then
 verify on a FRESH port (8488). NEVER blanket-kill node (would hit the other chat's 8485). Next: Q3
 (curriculum + glossary store scaffold — no API).
+
+**Wake 3 — Q3 curriculum + glossary store — ✅ DONE.** Education-engine scaffold, no API. Added
+`concepts` + `glossary` SQLite tables in store.js with `upsertConcept` (preserves last_used on
+re-seed), `listConcepts`, **`pickConcept(month)`** (season-aware least-recently-used rotation for
+the daily teaching thread), `getGlossary`/`getTerm`/`upsertGlossaryTerm`. New `src/curriculum.js`
+= 10 starter concepts (~130-word plain, "teach don't tell" bodies: basis, stocks-to-use, balance
+sheet, WASDE, board-vs-cash, managed money, crush, condition ratings, Brazil, soy:corn ratio) +
+15 glossary terms, each with a `season_window`. CLI `seed-curriculum`. **Test:** seeded 10+15;
+`pickConcept(7)` (July) returned two DIFFERENT July-eligible concepts on successive calls (wasde-101
+→ futures-vs-cash) confirming season-aware LRU. Files: store.js, curriculum.js, index.js, + queue/log.
+**PUNCH-LIST:** run `node src/index.js seed-curriculum` on the Pi (and locally) — Q6's education
+brief mode depends on it; polibrief.db is gitignored so the seed doesn't ship in the image. Next:
+Q4 (ag-news RSS additions).

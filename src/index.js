@@ -103,6 +103,15 @@ program
   });
 
 program
+  .command("seed-curriculum")
+  .description("Load the education-engine concept bank + glossary into SQLite (idempotent)")
+  .action(async () => {
+    const { seedCurriculum } = await import("./curriculum.js");
+    const r = seedCurriculum();
+    console.log(`📚 Seeded ${r.concepts} concepts + ${r.terms} glossary terms.`);
+  });
+
+program
   .command("registry-seed <source>")
   .description("Run one registry seeder: openstates | fec | socrata")
   .action(async (source) => {
