@@ -370,6 +370,47 @@
       "id": "feed-iasoybean", "type": "news_source", "full_name": "Iowa Soybean Association (news)", "level": "state", "counties": ["*"],
       "notes": "ISA's own news RSS → News tab. Verify on Pi.",
       "channels": [{ "kind": "rss", "url_or_handle": "https://www.iasoybeans.com/feed" }]
+    },
+
+    {
+      "id": "gov-carb", "type": "agency", "full_name": "California Air Resources Board (LCFS)", "level": "state", "counties": ["*"],
+      "notes": "CA Low Carbon Fuel Standard — credit market + amendments drive biofuel/soy-oil demand. RSS unreliable → subscribe beanbrief@ to CARB LCFS listserv (email-intake).",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://ww2.arb.ca.gov/our-work/programs/low-carbon-fuel-standard" },
+        { "kind": "newsletter_email", "url_or_handle": "arb.ca.gov", "org_id": "carb" }
+      ]
+    },
+    {
+      "id": "gov-or-deq", "type": "agency", "full_name": "Oregon DEQ (Clean Fuels Program)", "level": "state", "counties": ["*"],
+      "notes": "OR Clean Fuels Program (LCFS-type). Subscribe beanbrief@ to the program listserv.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.oregon.gov/deq/ghgp/cfp/pages/default.aspx" },
+        { "kind": "newsletter_email", "url_or_handle": "oregon.gov", "org_id": "ordeq" }
+      ]
+    },
+    {
+      "id": "gov-wa-ecology", "type": "agency", "full_name": "WA Dept of Ecology (Clean Fuel Standard)", "level": "state", "counties": ["*"],
+      "notes": "WA Clean Fuel Standard (LCFS-type). Subscribe beanbrief@ to the program updates.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://ecology.wa.gov/air-climate/reducing-greenhouse-gas-emissions/clean-fuel-standard" },
+        { "kind": "newsletter_email", "url_or_handle": "ecology.wa.gov", "org_id": "waecology" }
+      ]
+    },
+    {
+      "id": "gov-nm-env", "type": "agency", "full_name": "New Mexico Environment Dept", "level": "state", "counties": ["*"],
+      "notes": "NM clean-fuel/LCFS activity. Has a live RSS feed (verified).",
+      "channels": [
+        { "kind": "rss", "url_or_handle": "https://www.env.nm.gov/feed/" },
+        { "kind": "newsletter_email", "url_or_handle": "env.nm.gov", "org_id": "nmenv" }
+      ]
+    },
+    {
+      "id": "gov-ia-dnr", "type": "agency", "full_name": "Iowa DNR", "level": "state", "counties": ["*"],
+      "notes": "Iowa water quality / nutrient / CAFO / environment. RSS unreliable → subscribe beanbrief@ to DNR GovDelivery.",
+      "channels": [
+        { "kind": "website", "url_or_handle": "https://www.iowadnr.gov" },
+        { "kind": "newsletter_email", "url_or_handle": "iowadnr.gov", "org_id": "iadnr" }
+      ]
     }
   ]
 }

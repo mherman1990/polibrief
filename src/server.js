@@ -167,7 +167,7 @@ function page(title, body) {
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
-<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/search">Search</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs</a></nav>
+<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs</a></nav>
 </header>
 <script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
 ${body}
@@ -403,7 +403,7 @@ function settingsSection(watchlist, openId) {
 </details>`;
 }
 
-function homeBody(notice, openId = null) {
+function homeBody(notice, openId = null, search = null) {
   const briefs = store.listBriefs(60);
   const items = briefs
     .map((b) => {
@@ -426,9 +426,20 @@ function homeBody(notice, openId = null) {
     configSections = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
   }
 
+  const searchSection = `<h2 style="margin-bottom:2px">🔎 Ask the Bean Brief</h2>
+<form method="get" action="/" class="toolbar">
+  <input type="text" name="q" placeholder='e.g. "what happened with 45Z guidance?" or "China soybean demand"' value="${esc(search?.q ?? "")}" style="min-width:340px">
+  <button>Ask</button>
+</form>
+<p class="muted" style="margin-top:0">Answers draw on everything stored — Laws/Rules/Decisions + News + briefs — with links. One Sonnet call (~a cent) per question.</p>
+${search?.error ? `<div class="banner err">⚠️ ${esc(search.error)}</div>` : ""}
+${search?.result ? `<div class="answer">${markdownToHtml(search.result.answer)}</div>` : ""}
+<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:16px 0">`;
+
   return `
 ${lastRunProblem ? `<div class="banner err">❌ ${esc(lastRunProblem.message)} <span class="muted">(${esc(lastRunProblem.when)})</span><br><span class="muted">Most common cause: missing API keys — edit the .env file in the app's data folder, then restart the app. Details on the <a href="/logs">Logs page</a>.</span></div>` : ""}
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
+${searchSection}
 <p>
   <form method="post" action="/run"><input type="hidden" name="edition" value="am"><button>▶ Run AM brief now</button></form>
   <form method="post" action="/run"><input type="hidden" name="edition" value="pm"><button>▶ Run PM brief now</button></form>
@@ -912,8 +923,17 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
 
       // ----- pages -----
       if (req.method === "GET" && url.pathname === "/") {
+        const q = url.searchParams.get("q");
+        let search = null;
+        if (q) {
+          try {
+            search = { q, result: await answerQuery(q, process.env) };
+          } catch (err) {
+            search = { q, error: err.message };
+          }
+        }
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("The Bean Brief", homeBody(url.searchParams.get("notice"), url.searchParams.get("open"))));
+        res.end(page("The Bean Brief", homeBody(url.searchParams.get("notice"), url.searchParams.get("open"), search)));
         return;
       }
 
@@ -952,18 +972,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       }
 
       if (req.method === "GET" && url.pathname === "/search") {
-        const q = url.searchParams.get("q");
-        let result = null;
-        let error = null;
-        if (q) {
-          try {
-            result = await answerQuery(q, process.env);
-          } catch (err) {
-            error = err.message;
-          }
-        }
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("The Bean Brief · search", searchBody(q, result, error)));
+        redirect(res, url.search ? `/${url.search}` : "/"); // search now lives on the homepage
         return;
       }
 

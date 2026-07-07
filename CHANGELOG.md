@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.0 — Markets dashboard (charts + CSV) · homepage search · more sources
+
+### Added
+- **Markets charts** — a timeseries layer feeds inline charts on the Markets tab, each with a **CSV download**:
+  - **Biofuel feedstock market share** — every lipid feedstock in U.S. biodiesel + renewable diesel (soybean
+    oil vs. corn oil, canola, used cooking oil, tallow, animal fats…), so you can watch soy's share vs. the competition.
+  - **Soybean price received** (Iowa vs. U.S.), **U.S. crush**, **U.S. ending stocks**.
+  - `market-refresh` CLI; series refresh automatically on each run.
+- **USDA AMS basis** on the Markets tab (Iowa cash soybean price + basis).
+- **More sources** in the registry — ag-news RSS (CFTC, USDA, EPA, Farm Progress, Agri-Pulse, ASA, RFA,
+  Growth Energy, Clean Fuels, Iowa Soybean) and LCFS/Iowa agencies (CARB, Oregon DEQ, WA Ecology,
+  NM Environment, Iowa DNR).
+
+### Changed
+- **Search moved to the homepage** ("Ask the Bean Brief") — the separate Search page is gone; ask questions
+  right from Home. Answers still draw on stored items + briefs.
+
 ## 1.4.1 — LRD rename · in-place triage · AMS basis · RSS feeds
 
 ### Added
