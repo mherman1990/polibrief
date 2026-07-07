@@ -72,3 +72,17 @@ items (no chart)** per "charts are secondary" rather than a thin 2-point chart �
 engine now has Brazil's competitor crop size + YoY. A real multi-year Brazil production trend chart
 needs PAM aggregate 1612 (added to Punch-list). Files: ibge_brazil.js, adapters/index.js, watchlist.json,
 + queue/log. Next: Q6 (education brief mode — depends on Q3 curriculum).
+
+**Wake 6 — Q6 education brief mode (Mode A) — ✅ DONE.** The BeanBrief "teach, don't tell" daily
+market-education brief, as a memo preset. Added `EDUCATION_SYSTEM_PROMPT` (§1 identity + 6 hard
+guardrails) to curriculum.js; `MEMO_PRESETS.education` (scopeDays 3, injectCurriculum) with the §3
+daily-brief structure; generateMemo now injects a season-aware `pickConcept()` + glossary block
+(auto-seeds the bank if empty). Wired: server.js SAFE_BRIEF_NAME + triggerRun + /run allow-list +
+homepage 🎓 button + label; CLI `memo education` works via the generic runMemo. **Test:** `memo
+education` produced a genuinely strong brief — pulled from TONIGHT'S new adapters (drought 12.15% D1+
++47%/wk; agtransport export inspections 93rd pctile vs new sales 9th pctile using the deep trend
+stats; crop condition), each cited with source+date; taught the "managed money/COT" concept AND
+correctly REFUSED to invent a COT number it didn't have ("the data provided here does not include
+the current COT positioning") = guardrail #2 holding; no advice, nonpartisan, Today's-Terms from the
+glossary. Homepage button present, /brief/…education.md renders, 0 errors. Files: pipeline.js,
+curriculum.js, server.js, + queue/log. Next: Q7 (CME settlements — flaky, keyless).

@@ -182,7 +182,7 @@ ${body}
 </body></html>`;
 }
 
-const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer)(-farmer)?\.md$/;
+const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer|education)(-farmer)?\.md$/;
 
 // ---------- run management ----------
 let runInProgress = false;
@@ -192,7 +192,7 @@ async function triggerRun(edition) {
   if (runInProgress) return "A run is already in progress — give it a minute.";
   runInProgress = true;
   try {
-    if (["weekly", "monthly", "farmer"].includes(edition)) await runMemo(edition, process.env);
+    if (["weekly", "monthly", "farmer", "education"].includes(edition)) await runMemo(edition, process.env);
     else await runPipeline({ edition, env: process.env });
     lastRunProblem = null;
     return null;
@@ -421,7 +421,8 @@ function homeBody(notice, openId = null, search = null) {
         .replace(/-(am|pm)$/, (m) => m.replace("-", " · ").toUpperCase())
         .replace(/-weekly$/, " · 📚 WEEKLY")
         .replace(/-monthly$/, " · 🗓️ MONTHLY")
-        .replace(/-farmer$/, " · 🌾 FARMER");
+        .replace(/-farmer$/, " · 🌾 FARMER")
+        .replace(/-education$/, " · 🎓 EDUCATION");
       return `<li><a href="/brief/${encodeURIComponent(name)}">${esc(label)}</a> <span class="muted">${esc(
         fmtCT(b.created_at)
       )}</span></li>`;
@@ -456,6 +457,7 @@ ${searchSection}
   <form method="post" action="/run"><input type="hidden" name="edition" value="weekly"><button class="ghost">📚 Weekly memo</button></form>
   <form method="post" action="/run"><input type="hidden" name="edition" value="monthly"><button class="ghost">🗓️ Monthly review</button></form>
   <form method="post" action="/run"><input type="hidden" name="edition" value="farmer"><button class="ghost">🌾 Farmer update</button></form>
+  <form method="post" action="/run"><input type="hidden" name="edition" value="education"><button class="ghost">🎓 Market-education brief</button></form>
   ${runInProgress ? '<span class="muted"> a run is in progress…</span>' : ""}
 </p>
 <h2>Saved briefs <span class="muted" style="font-weight:400;font-size:.7em">(<a href="/feed.xml">RSS</a>)</span></h2>
@@ -1074,7 +1076,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       // ----- actions -----
       if (req.method === "POST" && url.pathname === "/run") {
         const form = await readForm(req);
-        const edition = ["am", "pm", "weekly", "monthly", "farmer"].includes(form.get("edition")) ? form.get("edition") : "am";
+        const edition = ["am", "pm", "weekly", "monthly", "farmer", "education"].includes(form.get("edition")) ? form.get("edition") : "am";
         triggerRun(edition).then((problem) => {
           if (problem) console.log(`⚠️  ${problem}`);
         });

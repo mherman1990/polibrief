@@ -51,7 +51,7 @@ trend retrieval) is already done + committed (`0200cfd`).
   `brazil_soy`; `fetchItems` = latest. Confirm the exact aggregate/variable IDs live (LSPA =
   aggregate 6588 or similar) — if the query shape resists after 2 tries, `[!]` + Punch-list.
   Files: adapter, `adapters/index.js`, `watchlist.json`, `server.js` (chart).
-- [ ] **Q6 — Education brief mode (Mode A)** (extend `src/pipeline.js`, no new API).
+- [x] **Q6 — Education brief mode (Mode A)** (extend `src/pipeline.js`, no new API).
   Add a `MEMO_PRESETS.education` preset OR a `generateEducationBrief()` that loads the §1
   "teach, don't tell" system prompt (from `docs/beanbrief_education_engine.md`) + the deep market
   snapshot + a curriculum concept (Q3) and writes the §3 daily-brief structure. Nonpartisan,

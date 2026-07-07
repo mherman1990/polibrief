@@ -14,6 +14,7 @@ import { generateBrief } from "./brief.js";
 import { saveBrief, postToTeams, sendEmail } from "./deliver.js";
 import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
+import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
 
 /** The live watchlist file: the data-volume copy in Docker/Umbrel, else the project one. */
 export function watchlistFilePath() {
@@ -464,6 +465,32 @@ Comment deadlines or decisions that affect farmers.
 
 Rules: never invent items or numbers; keep markdown links; nonpartisan and informational ONLY — no advocacy, no "contact your legislator," no partisan framing; keep it short — a farmer reads this in two minutes.`,
   },
+  education: {
+    label: "Market-education brief",
+    edition: "education",
+    scopeDays: 3,
+    maxTokens: 2200,
+    injectCurriculum: true,
+    // The stable "teach, don't tell" identity (§1) + the daily-brief task structure (§3).
+    system: (dateLabel) => `${EDUCATION_SYSTEM_PROMPT}
+
+TASK: Write today's BeanBrief daily market-education brief for Iowa soybean and corn farmers, using ONLY the data context provided. Structure exactly:
+
+## BeanBrief — Market Education, ${dateLabel}
+
+### The lead
+2–3 sentences: what mattered most in the market lately and — the important part — WHY. Anchor to the most significant data point. If a move was driven by a surprise vs. expectations, teach that.
+### What moved
+2–4 short items. Each: the fact (with source + date), then one or two sentences of plain explanation of the mechanism. Skip anything that doesn't help understanding today.
+### Understanding today's market
+One short paragraph teaching the assigned CONCEPT (provided below), tied to something in today's data so the lesson lands in context. Treat this as the most valuable part.
+### Worth watching
+1–2 bullets: what a farmer can now watch for themselves — the next report, a weather window, an export pace. "Here's what to watch and why," never "here's what to do."
+### Today's terms
+A one-line plain definition for any market term you used (draw from the glossary provided). Omit this block entirely if you introduced no term.
+
+Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. Start at the lead. Remember the hard guardrails — explain, never advise.`,
+  },
 };
 
 /**
@@ -505,6 +532,21 @@ export async function generateMemo(presetId, env) {
     if (fs.existsSync(p)) briefTexts.push(`--- ${path.basename(b.path)} ---\n${fs.readFileSync(p, "utf8").slice(0, 9000)}`);
   }
 
+  // For the education brief: inject a season-aware teaching concept (+ glossary). Auto-seed
+  // the concept bank if it's empty so this works even before `seed-curriculum` is run.
+  let curriculumBlock = "";
+  if (preset.injectCurriculum) {
+    if (store.listConcepts().length === 0) seedCurriculum();
+    const concept = store.pickConcept();
+    const glossary = store.getGlossary();
+    curriculumBlock =
+      `\n\n=== ASSIGNED TEACHING CONCEPT (explain this in "Understanding today's market") ===\n` +
+      (concept ? `${concept.title}\n${concept.body}` : "(none)") +
+      `\n\n=== GLOSSARY (for "Today's terms") ===\n` +
+      (glossary.length ? glossary.map((g) => `- ${g.term}: ${g.definition}`).join("\n") : "(none)");
+    if (concept) console.log(`   🎓 teaching concept: ${concept.id}`);
+  }
+
   const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
   console.log(`\n📝 ${preset.label}: ${official.length + news.length} items + ${marketBlock ? "market data" : "no market data"} over the last ${preset.scopeDays}d (${model})…`);
 
@@ -522,7 +564,8 @@ export async function generateMemo(presetId, env) {
           `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
           `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
           `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
-          `=== DAILY BRIEFS IN WINDOW ===\n${briefTexts.join("\n\n") || "(none)"}`,
+          `=== DAILY BRIEFS IN WINDOW ===\n${briefTexts.join("\n\n") || "(none)"}` +
+          curriculumBlock,
       },
     ],
   });
