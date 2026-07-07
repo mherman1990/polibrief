@@ -31,6 +31,7 @@ import * as cftc from "./cftc.js";
 import * as open_meteo from "./open_meteo.js";
 import * as usda_ams from "./usda_ams.js";
 import * as agtransport from "./agtransport.js";
+import * as drought_monitor from "./drought_monitor.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -50,6 +51,7 @@ export const adapters = {
   [open_meteo.id]: open_meteo,
   [usda_ams.id]: usda_ams,
   [agtransport.id]: agtransport,
+  [drought_monitor.id]: drought_monitor,
 };
 
 // Information CLASS per source — decides which portal tab an item surfaces on, and
@@ -76,6 +78,7 @@ export const SOURCE_CLASS = {
   usda_ams: "markets",
   open_meteo: "markets",
   agtransport: "markets",
+  drought_monitor: "markets",
 };
 export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
 export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);

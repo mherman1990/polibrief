@@ -29,7 +29,7 @@ trend retrieval) is already done + committed (`0200cfd`).
 
 ## Queue (priority order)
 
-- [ ] **Q1 — U.S. Drought Monitor adapter** (`src/adapters/drought_monitor.js`, keyless).
+- [x] **Q1 — U.S. Drought Monitor adapter** (`src/adapters/drought_monitor.js`, keyless).
   Endpoint `https://usdmdataservices.unl.edu/api/StateStatistics/GetDroughtSeverityStatisticsByAreaPercent?aoi=IA&startdate=2015-01-01&enddate=<today>&statisticsType=1` → JSON weekly rows with `d0..d4`, `none`, `validStart`. Series: Iowa **% area in drought (D1–D4)** and **% D0–D4** (any dryness), weekly; category `drought`. `fetchItems` = current Iowa drought %; `fetchSeries` = history. Also pull national/Corn-Belt if easy. Add a `drought` chart. Files: adapter, `adapters/index.js`, `watchlist.json`, `server.js` (chart).
 - [ ] **Q2 — NASS corn price + soy:corn ratio** (extend `src/adapters/usda_nass.js`, key present).
   Add U.S. + Iowa **corn price received** series (mirror the soy price queries, `commodity_desc:CORN`), category `corn_price`; then a **computed** `soy:corn price ratio` series (Iowa soy price ÷ Iowa corn price by shared period), category `soy_corn_ratio`. Charts for each. The ratio is a classic acreage/relative-value read farmers watch. Files: `usda_nass.js`, `server.js` (2 charts).
