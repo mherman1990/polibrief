@@ -102,6 +102,10 @@ const NASS_SERIES = [
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "PRICE RECEIVED", state_alpha: "IA", unit_desc: "$ / BU" } },
   { key: "nass:us:stocks", label: "U.S. soybean stocks", category: "soy_stocks", unit: "bu",
     params: { commodity_desc: "SOYBEANS", statisticcat_desc: "STOCKS", agg_level_desc: "NATIONAL", unit_desc: "BU" } },
+  { key: "nass:us:corn-price", label: "U.S. avg", category: "corn_price", unit: "$/bu",
+    params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", agg_level_desc: "NATIONAL", unit_desc: "$ / BU" } },
+  { key: "nass:ia:corn-price", label: "Iowa avg", category: "corn_price", unit: "$/bu",
+    params: { commodity_desc: "CORN", statisticcat_desc: "PRICE RECEIVED", state_alpha: "IA", unit_desc: "$ / BU" } },
 ];
 const MM2 = /^(0[1-9]|1[0-2])$/;
 
@@ -157,6 +161,19 @@ export async function fetchSeries({ env = process.env } = {}) {
     }
     const points = [...byWeek.entries()].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period));
     if (points.length) out.push({ series: s.key, meta: { label: s.label, unit: "% good/excellent", category: "soy_condition" }, points });
+  }
+
+  // Computed: the soybean-to-corn price ratio (Iowa) — a classic relative-value / acreage
+  // read farmers watch (roughly ~2.3–2.5 is the historical planting-decision pivot). Derived
+  // from the two Iowa price series above, matched on shared months. No extra API call.
+  const iaSoy = out.find((s) => s.series === "nass:ia:price");
+  const iaCorn = out.find((s) => s.series === "nass:ia:corn-price");
+  if (iaSoy && iaCorn) {
+    const cornByPeriod = new Map(iaCorn.points.map((p) => [p.period, p.value]));
+    const ratio = iaSoy.points
+      .filter((p) => cornByPeriod.get(p.period) > 0)
+      .map((p) => ({ period: p.period, value: Math.round((p.value / cornByPeriod.get(p.period)) * 100) / 100 }));
+    if (ratio.length) out.push({ series: "nass:ia:soy-corn-ratio", meta: { label: "Iowa soybean:corn price ratio", unit: "ratio", category: "soy_corn_ratio" }, points: ratio });
   }
   return out;
 }

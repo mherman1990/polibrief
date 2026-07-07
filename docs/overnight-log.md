@@ -22,3 +22,16 @@ abnormally dry+ (week of 2026-06-30)"; fetchSeries → 2×601 weekly pts (2014-1
 d0=33.34); market-refresh → 20 series; Markets page renders chart_drought (8 charts total), both series
 in the blob, 0 server errors. Files committed: drought_monitor.js, adapters/index.js, watchlist.json,
 server.js, + queue/log. Next: Q2 (NASS corn price + soy:corn ratio).
+
+**Wake 2 — Q2 NASS corn price + soy:corn ratio — ✅ DONE.** Extended `usda_nass.js` fetchSeries:
+added U.S. + Iowa **corn price received** (`nass:us:corn-price`, `nass:ia:corn-price`, category
+`corn_price`) mirroring the soy price queries; added a **computed** `nass:ia:soy-corn-ratio`
+(Iowa soy ÷ corn by shared month, category `soy_corn_ratio`, no extra API call). Two new charts
+in server.js. **Test:** corn IA $4.45 / US $4.48 (2026-05, 113 pts each); ratio 2.56 (2026-05,
+113 pts — above the ~2.5 beans/corn pivot); market-refresh → 23 series; Markets page = **10 chart
+boxes**, corn_price + soy_corn_ratio present, 0 errors. Files: usda_nass.js, server.js, + queue/log.
+**GOTCHA for future wakes:** the background verify server can linger and hold its port (MSYS `kill`
+doesn't always reap node.exe) → a stale server serves OLD code and the check looks like a fail. FIX
+used: kill by port via `netstat -ano | grep LISTENING | grep :PORT` → `taskkill //F //PID`, then
+verify on a FRESH port (8488). NEVER blanket-kill node (would hit the other chat's 8485). Next: Q3
+(curriculum + glossary store scaffold — no API).
