@@ -41,52 +41,82 @@ async function listReleases(limit = 6) {
   return out;
 }
 
-// WASDE nests as: <Report sub_report_title="U.S. Soybeans and Products Supply and Use …">
-//   → commodity group (commodity1|2|3 = "Soybeans" | "Soybean Meal" | "Soybean Oil")
-//   → year group (market_year1|2|3) → attribute (attribute1|2|3 on an <s3>) → <Cell cell_valueN>.
-// We walk the whole doc, tracking the current sub-report / commodity / year, and record every
-// {attribute -> value} for the SOYBEANS commodity inside a section matching `sectionRe`.
-// Returns { marketingYear -> { attribute -> number } }. Matrix-agnostic (checks the 1/2/3 variants).
-function extractBalance(root, sectionRe) {
-  const out = {};
-  const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
-  const first = (n, ...keys) => { for (const k of keys) if (n[k] != null) return n[k]; return null; };
-  const V = (base) => [1, 2, 3, 4, 5, 6].map((i) => base + i);
-  const getSub = (n) => first(n, "sub_report_title", "sub_report_title2", "sub_report_title3");
-  const getCommodity = (n) => first(n, ...V("commodity"), "commodity");
-  const getYear = (n) => first(n, ...V("market_year"));
-  const getAttr = (n) => first(n, ...V("attribute"), "attribute");
-  const getCell = (n) => first(n, ...V("cell_value"), "cell_value");
+// The soybean balance-sheet attributes we key on. Note the ACTUAL WASDE labels: total use is
+// written "Use, Total" (not "Total Use"), and ending stocks appears as "Ending Stocks"/"Ending stocks".
+const END_STOCKS_RE = /ending\s*stocks/i;
+const USE_TOTAL_RE = /use,?\s*total|total\s*(use|disappearance)/i;
 
-  let section = "", commodity = "", year = "";
-  function findCell(node) {
-    if (node == null || typeof node !== "object") return null;
-    const c = getCell(node);
-    if (c != null) { const num = Number(String(c).replace(/,/g, "")); if (Number.isFinite(num)) return num; }
-    for (const v of Object.values(node)) {
-      if (Array.isArray(v)) { for (const x of v) { const r = findCell(x); if (r != null) return r; } }
-      else if (v && typeof v === "object") { const r = findCell(v); if (r != null) return r; }
-    }
-    return null;
-  }
-  function walk(node) {
+// WASDE ships as SSRS "matrix" XML: <Report Name="wasde"> → sub-reports <srNN> (one per table,
+// keyed by `sub_report_title`) → one or more <matrixK> pivot tables. The U.S. soybean balance sheet
+// lives in the "U.S. Soybeans and Products" sub-report as THREE sibling matrices — Soybeans /
+// Soybean Oil / Soybean Meal — distinguished ONLY POSITIONALLY: there is no commodity field; each
+// matrix's cells simply carry a numbered suffix (e.g. attribute4 / market_year4 / cell_value4 for
+// the first matrix, …5 for the second, …6 for the third). Values nest attribute → year → forecast-
+// month → <Cell cell_valueN>.
+//
+// So we collect every numeric cell into a group keyed by (sub-report title + matrix suffix), building
+// each group's { marketingYear -> { attribute -> value } } table. Matrix-agnostic — the suffix
+// numbers can shift release-to-release without breaking us, since we group by whatever suffix is
+// present rather than hard-coding 1/2/3.
+function collectGroups(root, sectionRe) {
+  // World-table labels embed the PDF's line breaks as literal entities ("Ending&#xD;&#xA;Stocks"),
+  // which fast-xml-parser leaves un-decoded in attribute values — decode CR/LF/tab refs to a space
+  // so attribute names normalize to "Ending Stocks" and our attribute regexes match.
+  const norm = (s) => String(s ?? "").replace(/&#x0*(?:d|a|9);/gi, " ").replace(/&#0*(?:13|10|9);/g, " ").replace(/\s+/g, " ").trim();
+  const groups = new Map(); // "section||suffix" -> { section, attrs:Set<string>, table:{year:{attr:num}} }
+  function walk(node, ctx) {
     if (node == null || typeof node !== "object") return;
-    const s0 = section, c0 = commodity, y0 = year;
-    const sub = getSub(node); if (sub != null) section = norm(sub);
-    const com = getCommodity(node); if (com != null) commodity = norm(com);
-    const yr = getYear(node); if (yr != null) year = norm(yr);
-    const at = getAttr(node);
-    if (at != null && sectionRe.test(section) && /soybean/i.test(commodity) && !/meal|oil/i.test(commodity) && year) {
-      const v = findCell(node);
-      if (v != null) (out[year] = out[year] || {})[norm(at)] = v;
+    const c = { ...ctx };
+    for (const [k, v] of Object.entries(node)) {
+      if (v != null && typeof v === "object") continue; // scalars (attributes) only
+      let m;
+      if (/^sub_report_title\d*$/i.test(k)) c.section = norm(v);
+      else if ((m = k.match(/^region_header(\d*)$/i))) { c.year = norm(v); if (m[1]) c.suffix = m[1]; } // world tables: the year is the matrix header
+      else if ((m = k.match(/^region(\d*)$/i))) { c.region = norm(v); if (m[1]) c.suffix = m[1]; } // world tables: rows are regions
+      else if ((m = k.match(/^attribute(\d*)$/i))) { c.attribute = norm(v); c.suffix = m[1] || c.suffix || ""; }
+      else if ((m = k.match(/^market_year(\d*)$/i))) { c.year = norm(v); if (m[1]) c.suffix = m[1]; } // U.S. tables: the year is on the row
+      else if ((m = k.match(/^cell_value(\d*)$/i))) { c.value = v; if (m[1]) c.suffix = m[1]; }
+    }
+    if (c.value != null && c.attribute && c.year && c.section && sectionRe.test(c.section)) {
+      const num = Number(String(c.value).replace(/,/g, ""));
+      if (Number.isFinite(num)) {
+        const key = `${c.section}||${c.suffix || ""}||${c.region || ""}`;
+        let g = groups.get(key);
+        if (!g) groups.set(key, (g = { section: c.section, region: c.region || "", attrs: new Set(), table: {} }));
+        g.attrs.add(c.attribute);
+        (g.table[c.year] = g.table[c.year] || {})[c.attribute] = num; // later forecast-month wins
+      }
     }
     for (const v of Object.values(node)) {
-      if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") walk(v);
+      if (Array.isArray(v)) v.forEach((x) => walk(x, c));
+      else if (v && typeof v === "object") walk(v, c);
     }
-    section = s0; commodity = c0; year = y0;
   }
-  walk(root);
-  return out;
+  walk(root, {});
+  return [...groups.values()];
+}
+
+// Pick the soybean balance table out of a section and return { marketingYear -> {attr->num} }.
+// Two very different WASDE layouts:
+//   • World Soybean table — rows are REGIONS; we take the "World" aggregate row, merging its
+//     per-year matrices into one table.
+//   • U.S. "Soybeans and Products" table — three commodity matrices (Soybeans / Oil / Meal); the
+//     soybean matrix is the ONLY one with acreage rows (Area Planted/Harvested/Yield) and a farm
+//     price in $/bu (meal is $/short ton, oil is ¢/lb, neither has acreage). That isolates beans.
+function extractBalance(root, sectionRe) {
+  const groups = collectGroups(root, sectionRe);
+  if (!groups.length) return {};
+  const regionName = (r) => String(r ?? "").replace(/\s+/g, " ").replace(/\s*\d+\/?\s*$/, "").trim(); // "World  2/" -> "World"
+  const worldGroups = groups.filter((g) => regionName(g.region) === "World");
+  if (worldGroups.length) {
+    const out = {};
+    for (const g of worldGroups) for (const [yr, row] of Object.entries(g.table)) out[yr] = { ...(out[yr] || {}), ...row };
+    return out;
+  }
+  const isBean = (g) => [...g.attrs].some((a) => /area\s*(planted|harvested)|yield\s*per|\$\s*\/\s*bu/i.test(a));
+  const beans = groups.filter(isBean);
+  const chosen = beans[0] || [...groups].sort((a, b) => b.attrs.size - a.attrs.size)[0];
+  return chosen.table;
 }
 
 // Pick the marketing year to report: prefer the projection ("(Proj.)"), else the latest.
@@ -118,14 +148,14 @@ export async function fetchItems() {
   const { us, world, period, xml } = await loadRelease(rel);
   const y = pickYear(us);
   if (!y) return [];
-  const end = attr(us, y, /ending\s*stocks/i);
-  const use = attr(us, y, /total\s*use|total\s*disappearance/i);
+  const end = attr(us, y, END_STOCKS_RE);
+  const use = attr(us, y, USE_TOTAL_RE);
   const stu = end != null && use ? (end / use) * 100 : null;
-  const wend = attr(world, pickYear(world) || y, /ending\s*stocks/i);
+  const wend = attr(world, pickYear(world) || y, END_STOCKS_RE);
   const bits = [
-    end != null ? `ending stocks ${end}` : null,
+    end != null ? `ending stocks ${end} mln bu` : null,
     stu != null ? `stocks-to-use ${stu.toFixed(1)}%` : null,
-    wend != null ? `world stocks ${wend}` : null,
+    wend != null ? `world stocks ${wend} MMT` : null,
   ].filter(Boolean).join(" · ");
   return [{
     uid: `wasde:us:soy:${period}`,
@@ -151,22 +181,19 @@ export async function fetchSeries() {
   const releases = await listReleases(8);
   const loaded = (await Promise.allSettled(releases.map(loadRelease)))
     .filter((r) => r.status === "fulfilled").map((r) => r.value);
-  const endPts = [], stuPts = [], wendPts = [];
-  for (const { us, world, period } of loaded) {
+  const endPts = [], stuPts = [];
+  for (const { us, period } of loaded) {
     const y = pickYear(us);
-    if (y) {
-      const end = attr(us, y, /ending\s*stocks/i);
-      const use = attr(us, y, /total\s*use|total\s*disappearance/i);
-      if (end != null) endPts.push({ period, value: end });
-      if (end != null && use) stuPts.push({ period, value: (end / use) * 100 });
-    }
-    const wy = pickYear(world);
-    const wend = wy ? attr(world, wy, /ending\s*stocks/i) : null;
-    if (wend != null) wendPts.push({ period, value: wend });
+    if (!y) continue;
+    const end = attr(us, y, END_STOCKS_RE);
+    const use = attr(us, y, USE_TOTAL_RE);
+    if (end != null) endPts.push({ period, value: end });
+    if (end != null && use) stuPts.push({ period, value: (end / use) * 100 });
   }
   const out = [];
-  if (endPts.length) out.push({ series: "wasde:us:soy-endstocks", meta: { label: "U.S. soybean ending stocks", unit: "mln", category: "soy_balance" }, points: endPts });
-  if (wendPts.length) out.push({ series: "wasde:world:soy-endstocks", meta: { label: "World soybean ending stocks", unit: "mln", category: "soy_balance" }, points: wendPts });
+  // U.S. ending stocks (mln bu) + stocks-to-use (%). World stocks are in MMT, so we keep them out of
+  // these charts (no mixed-unit axis) — they ride along in the WASDE item summary instead.
+  if (endPts.length) out.push({ series: "wasde:us:soy-endstocks", meta: { label: "U.S. soybean ending stocks", unit: "mln bu", category: "soy_balance" }, points: endPts });
   if (stuPts.length) out.push({ series: "wasde:us:soy-stocks-to-use", meta: { label: "U.S. soybean stocks-to-use", unit: "%", category: "soy_balance_stu" }, points: stuPts });
   return out;
 }

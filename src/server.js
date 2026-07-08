@@ -20,10 +20,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 import * as store from "./store.js";
-import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, generateMarketCards, getCachedMarketCards } from "./pipeline.js";
+import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, generateMarketCards, getCachedMarketCards, generateStorylines, getStorylinesMeta } from "./pipeline.js";
 import { computeSignals } from "./signals.js";
 import { upcomingReports } from "./calendar.js";
-import { adapters, sourceIdsForClass } from "./adapters/index.js";
+import { adapters, sourceIdsForClass, classOf } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
 import { summarizeItem, summaryExpiry } from "./summarize.js";
 import { syncRegistryFromSeed } from "./registry.js";
@@ -80,7 +80,80 @@ export function markdownToHtml(md) {
     } else out.push(`<p>${inline(t)}</p>`);
   }
   if (inList) out.push("</ul>");
-  return out.join("\n");
+  return linkifySeries(out.join("\n"));
+}
+
+// ---------- figure drill-down: link market-series names in rendered prose to their chart ----------
+// Ask answers and briefs cite series by name ("U.S. soybean crush", "stocks-to-use"); turn the FIRST
+// mention of each known series into a link to its Markets chart (/markets#chart_<category>, the id
+// chartSection already emits). Operates on the rendered HTML and skips anything already inside an
+// <a>, so we never nest or break the item citations the LLM produced.
+let _seriesLinkCache = { at: 0, map: [] };
+function seriesLinkMap() {
+  if (Date.now() - _seriesLinkCache.at < 120000) return _seriesLinkCache.map; // cheap memo — metas rarely change
+  let map = [];
+  try {
+    const seen = new Set();
+    for (const m of store.listSeriesMeta()) {
+      const label = (m.label || "").trim();
+      if (label.length < 5 || !m.category || seen.has(label.toLowerCase())) continue;
+      seen.add(label.toLowerCase());
+      map.push({ label, href: `/markets#chart_${m.category}` });
+    }
+    map.sort((a, b) => b.label.length - a.label.length); // longest-first so a label isn't shadowed by a shorter substring
+  } catch {
+    map = [];
+  }
+  _seriesLinkCache = { at: Date.now(), map };
+  return map;
+}
+function linkifySeries(html) {
+  const map = seriesLinkMap(); // longest label first
+  if (!map.length || !html) return html;
+  const used = new Set();
+  const isWord = (c) => c != null && /\w/.test(c);
+  const parts = html.split(/(<[^>]+>)/); // alternating text / tag tokens
+  let inAnchor = 0;
+  for (let idx = 0; idx < parts.length; idx++) {
+    const p = parts[idx];
+    if (!p) continue;
+    if (p[0] === "<") {
+      if (/^<a\b/i.test(p)) inAnchor++;
+      else if (/^<\/a\s*>/i.test(p)) inAnchor = Math.max(0, inAnchor - 1);
+      continue;
+    }
+    if (inAnchor) continue; // never linkify inside an existing citation link
+    // Left-to-right longest-match scan: at each word-boundary position, take the longest unused
+    // label that matches there, emit its link, and skip past it. This can't nest or overlap, so
+    // "U.S. soybean stocks-to-use" wins over the shorter "U.S. soybean stocks" and never re-matches
+    // inside a link we just inserted.
+    const text = p;
+    let out = "";
+    let i = 0;
+    while (i < text.length) {
+      let hit = null;
+      if (i === 0 || !isWord(text[i - 1])) {
+        for (const entry of map) {
+          if (used.has(entry.label)) continue;
+          const L = entry.label.length;
+          if (text.slice(i, i + L).toLowerCase() !== entry.label.toLowerCase()) continue;
+          if (isWord(text[i + L])) continue; // must end on a boundary too
+          hit = entry;
+          break; // map is longest-first, so the first match here is the longest eligible
+        }
+      }
+      if (hit) {
+        out += `<a class="figlink" href="${hit.href}">${text.slice(i, i + hit.label.length)}</a>`;
+        used.add(hit.label);
+        i += hit.label.length;
+      } else {
+        out += text[i];
+        i++;
+      }
+    }
+    parts[idx] = out;
+  }
+  return parts.join("");
 }
 
 // ---------- page shell ----------
@@ -135,6 +208,8 @@ function page(title, body) {
   table.sources th, table.sources td, table.items th, table.items td
     { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
   table.sources th, table.items th { font-size: .85em; opacity: .7; font-weight: 600; }
+  table.sources tr.clsrow td { background: var(--isa-gold-light-40); border-bottom: 1px solid var(--isa-gold-40);
+    font-size: .88em; padding-top: 9px; padding-bottom: 9px; }
   details.topic { border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; margin: 8px 0; }
   details.topic[open] { border-color: var(--isa-dark-40); }
   details.topic summary { cursor: pointer; font-weight: 600; color: var(--isa-dark); }
@@ -167,11 +242,20 @@ function page(title, body) {
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; align-items: center; }
   .answer { border: 1px solid var(--isa-blue); border-radius: 10px; padding: 6px 18px; margin: 14px 0;
     background: var(--isa-blue-40); }
+  /* figure drill-down: a cited series name links to its chart — subtle dotted underline, not a loud link */
+  a.figlink { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--isa-blue); }
+  a.figlink:hover { border-bottom-style: solid; color: var(--isa-dark); }
   pre.logs { background: #f3f6f9; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
     font-size: .8rem; overflow-x: auto; white-space: pre-wrap; color: var(--ink); }
   .fb { opacity: .55; } .fb.on { opacity: 1; }
   ul.whatchanged { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
   ul.whatchanged li { font-size: .9em; line-height: 1.42; }
+  .storylines { display: flex; flex-direction: column; gap: 13px; margin-top: 2px; }
+  .storyline { border-left: 3px solid var(--isa-gold); padding: 1px 0 1px 12px; }
+  .storyline .sl-name { font-weight: 700; color: var(--isa-dark); }
+  .storyline .sl-focus { font-size: .82em; margin-top: 1px; }
+  .storyline .sl-what { margin: 5px 0 4px; font-size: .92em; }
+  .storyline ul.sl-tl { margin: 3px 0 0; }
   ul.whatchanged .wc-when { font-size: .8em; color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 5px; white-space: nowrap; }
   .report-cal { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 18px; padding: 8px 14px;
     border: 1px solid var(--isa-gold); background: var(--isa-gold-40); border-radius: 8px; font-size: .85em; }
@@ -274,41 +358,72 @@ function sparkline(series) {
 // ---------- dashboard sections ----------
 function sourcesSection(watchlist, openId) {
   const stats = store.getSourceStats(7);
-  const rows = Object.values(adapters)
-    .map((adapter) => {
-      const cfg = watchlist?.sources?.[adapter.id];
-      const s = stats[adapter.id] ?? { seen: 0, relevant: 0, lastSuccess: null };
-      const enabled = !(cfg && cfg.enabled === false);
-      let dot, status;
-      if (!enabled) {
-        dot = "⚪";
-        status = "turned off";
-      } else if (s.lastSuccess && Date.now() - new Date(s.lastSuccess).getTime() < 36 * 60 * 60 * 1000) {
-        dot = "🟢";
-        status = `checked ${fmtCT(s.lastSuccess)}`;
-      } else if (s.lastSuccess) {
-        dot = "🟠";
-        status = `last success ${fmtCT(s.lastSuccess)} — check the logs`;
-      } else {
-        dot = "🟠";
-        status = "waiting for first successful run";
-      }
-      const toggle = `<form method="post" action="/watchlist/source">
-        <input type="hidden" name="sourceId" value="${esc(adapter.id)}">
-        <input type="hidden" name="enabled" value="${enabled ? "false" : "true"}">
-        <button class="ghost tiny">${enabled ? "turn off" : "turn on"}</button></form>`;
-      return `<tr><td>${dot}</td><td><strong>${esc(adapter.label)}</strong><br><span class="muted">${esc(status)}</span></td>
-        <td>${s.seen}</td><td>${s.relevant}</td><td>${toggle}</td></tr>`;
+  // All-time fetched/relevant per source — the "value ledger" is cumulative, not just the last week.
+  const allTime = {};
+  for (const r of store.getAuditData().sourceCounts) allTime[r.source_id] = { total: r.total, relevant: r.relevant ?? 0 };
+
+  // The whole point of #5: value reads DIFFERENTLY by class. Official sources are AI-triaged, so
+  // their value is the relevance pass-rate. News/markets are never triaged (everything flows to
+  // their own tab), so a relevance % would wrongly brand them as noise — their value is coverage.
+  const CLASS_META = {
+    official: { label: "Official — laws, rules & decisions", blurb: "AI-triaged → value = relevance pass-rate." },
+    news: { label: "News — collector & press", blurb: "Not triaged → everything feeds the News tab + digest. Value = coverage." },
+    markets: { label: "Markets — demand & price data", blurb: "Not triaged → series feed the Markets charts + signals. Value = coverage." },
+  };
+
+  const rowFor = (adapter) => {
+    const cfg = watchlist?.sources?.[adapter.id];
+    const s = stats[adapter.id] ?? { seen: 0, relevant: 0, lastSuccess: null };
+    const at = allTime[adapter.id] ?? { total: 0, relevant: 0 };
+    const enabled = !(cfg && cfg.enabled === false);
+    let dot, status;
+    if (!enabled) {
+      dot = "⚪";
+      status = "turned off";
+    } else if (s.lastSuccess && Date.now() - new Date(s.lastSuccess).getTime() < 36 * 60 * 60 * 1000) {
+      dot = "🟢";
+      status = `checked ${fmtCT(s.lastSuccess)}`;
+    } else if (s.lastSuccess) {
+      dot = "🟠";
+      status = `last success ${fmtCT(s.lastSuccess)} — check the logs`;
+    } else {
+      dot = "🟠";
+      status = "waiting for first successful run";
+    }
+    const toggle = `<form method="post" action="/watchlist/source">
+      <input type="hidden" name="sourceId" value="${esc(adapter.id)}">
+      <input type="hidden" name="enabled" value="${enabled ? "false" : "true"}">
+      <button class="ghost tiny">${enabled ? "turn off" : "turn on"}</button></form>`;
+    let value;
+    if (classOf(adapter.id) === "official") {
+      const pass = at.total ? Math.round((at.relevant / at.total) * 100) : null;
+      value = at.total
+        ? `<strong>${pass}%</strong> pass<br><span class="muted">${at.relevant} of ${at.total} relevant</span>`
+        : `<span class="muted">—</span>`;
+    } else {
+      value = `<span class="muted">coverage feed<br>(not triaged)</span>`;
+    }
+    const fetched = `${s.seen}<br><span class="muted">${at.total} all-time</span>`;
+    return `<tr><td>${dot}</td><td><strong>${esc(adapter.label)}</strong><br><span class="muted">${esc(status)}</span></td>
+      <td>${fetched}</td><td>${value}</td><td>${toggle}</td></tr>`;
+  };
+
+  const groups = ["official", "news", "markets"]
+    .map((cls) => {
+      const list = Object.values(adapters).filter((a) => classOf(a.id) === cls);
+      if (!list.length) return "";
+      return `<tr class="clsrow"><td colspan="5"><strong>${esc(CLASS_META[cls].label)}</strong> — <span class="muted">${esc(CLASS_META[cls].blurb)}</span></td></tr>${list.map(rowFor).join("\n")}`;
     })
     .join("\n");
+
   const states = watchlist?.sources?.legiscan?.states ?? [];
   return `
-<h2>Sources</h2>
+<h2>Sources <span class="muted" style="font-weight:400;font-size:.7em">— value by class</span></h2>
 <table class="sources">
-  <tr><th></th><th>Source</th><th>Items (7d)</th><th>Relevant (7d)</th><th></th></tr>
-  ${rows}
+  <tr><th></th><th>Source</th><th>Fetched<br><span class="muted" style="font-weight:400">7d · all-time</span></th><th>Value</th><th></th></tr>
+  ${groups}
 </table>
-<p class="muted">🟢 active · 🟠 needs attention · ⚪ turned off. Counts are new items recorded by full runs.</p>
+<p class="muted">🟢 active · 🟠 needs attention · ⚪ turned off. <strong>Official</strong> sources are AI-triaged, so their value is the relevance pass-rate. <strong>News</strong> &amp; <strong>Markets</strong> sources aren't triaged — everything they fetch flows to their own tab — so a relevance score would wrongly read as noise; their value is coverage.</p>
 <details class="topic" id="t-states"${openId === "states" ? " open" : ""}>
   <summary>LegiScan states searched <span class="muted">(${esc(states.join(", ") || "none")})</span></summary>
   <div class="kicker">Two-letter codes. Adding "US" also searches the U.S. Congress by full bill text.</div>
@@ -464,6 +579,35 @@ function whatChangedSection() {
   return `<details class="topic" open><summary>🔔 What changed <span class="muted">(${alerts.length})</span></summary><ul class="whatchanged">${items}</ul></details>`;
 }
 
+// Storylines — the ongoing named threads the monitoring is really about (auto-clustered + persistent).
+function storylinesSection() {
+  let lines;
+  try {
+    lines = store.listStorylines(6);
+  } catch {
+    return "";
+  }
+  if (!lines.length) return "";
+  const meta = getStorylinesMeta();
+  const cards = lines
+    .map((s) => {
+      const tl = (s.timeline || [])
+        .slice(0, 4)
+        .map((e) => `<li><span class="wc-when">${esc(e.date || "")}</span> ${e.url ? `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.event)}</a>` : esc(e.event)}</li>`)
+        .join("");
+      return `<div class="storyline">
+        <div class="sl-name">${esc(s.name)}</div>
+        ${s.focus ? `<div class="muted sl-focus">${esc(s.focus)}</div>` : ""}
+        ${s.summary ? `<p class="sl-what">${esc(s.summary)}</p>` : ""}
+        ${tl ? `<ul class="whatchanged sl-tl">${tl}</ul>` : ""}
+      </div>`;
+    })
+    .join("");
+  return `<details class="topic" open><summary>🧵 Storylines <span class="muted">(${lines.length})${meta?.generatedAt ? ` · updated ${esc(fmtCT(meta.generatedAt))}` : ""}</span></summary>
+    <p class="muted" style="margin:2px 0 8px;font-size:.85em">The ongoing threads behind the headlines — auto-clustered from what's flowing in. <form method="post" action="/storylines" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></p>
+    <div class="storylines">${cards}</div></details>`;
+}
+
 // Market-education cards — the farmer-facing output of the condition-trigger engine (compliance-
 // framed: teach, never advise). Cached; generated on each run + on demand.
 function marketCardsSection() {
@@ -522,6 +666,7 @@ ${lastRunProblem ? `<div class="banner err">❌ ${esc(lastRunProblem.message)} <
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${searchSection}
 ${whatChangedSection()}
+${storylinesSection()}
 <style>
   .reports form{margin:0}
   .reports .report{display:flex;flex-direction:column;gap:3px}
@@ -786,6 +931,8 @@ function marketsBody(notice) {
     chartSection("soy_corn_ratio", "Soybean:corn price ratio (Iowa)", "Iowa soybean price ÷ corn price — the relative-value read behind acreage decisions. Historically ~2.3–2.5 is the rough pivot between favoring beans and corn.", 240),
     chartSection("soy_crush", "U.S. soybean crush", "Monthly crush — the domestic-demand engine, near record highs on renewable-diesel demand.", 260),
     chartSection("soy_stocks", "U.S. soybean stocks", "Quarterly ending stocks — the supply cushion behind price.", 260),
+    chartSection("soy_balance", "U.S. soybean ending stocks (WASDE)", "USDA's monthly WASDE ending-stocks estimate for the current marketing year (mln bushels) — the supply cushion at the heart of the balance sheet. Each point is a fresh WASDE, so the line doubles as a revision trail.", 260),
+    chartSection("soy_balance_stu", "U.S. soybean stocks-to-use (WASDE)", "Ending stocks as a share of total use — the tightness ratio that drives price. Roughly: below ~8% is tight (supportive), above ~15% is ample (a drag).", 240),
     chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
     chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
     chartSection("weather_us", "U.S. crop-weather anomaly", "Recent 30-day precipitation and heat vs. the ~27-year normal for the U.S. soybean belt (Open-Meteo / ERA5), production-weighted. Percentiles: low precip = drier than normal, high heat = hotter — both crop stress.", 240),
@@ -1189,6 +1336,18 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           notice = `Digest failed: ${err.message}`;
         }
         redirect(res, `/news?notice=${encodeURIComponent(notice)}`);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/storylines") {
+        let notice;
+        try {
+          const s = await generateStorylines(process.env);
+          notice = s ? `Storylines updated (${s.count} active thread${s.count === 1 ? "" : "s"}).` : "Not enough recent items to cluster into storylines yet.";
+        } catch (err) {
+          notice = `Storyline update failed: ${err.message}`;
+        }
+        redirect(res, `/?notice=${encodeURIComponent(notice)}`);
         return;
       }
 

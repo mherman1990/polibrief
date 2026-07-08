@@ -79,7 +79,11 @@ export async function summarizeItem(item, env) {
 
   const response = await client.messages.create({
     model,
-    max_tokens: 900, // ~500 words + headroom
+    max_tokens: 1200, // ~500-word summary + headroom
+    // Disable thinking: condensing a document isn't a reasoning task, and on Sonnet 5 (our default
+    // model) adaptive thinking is ON by default and counts against max_tokens — at this small budget
+    // it can eat the summary. Off = the full budget goes to the summary, and it's cheaper.
+    thinking: { type: "disabled" },
     system: SYSTEM,
     messages: [{ role: "user", content: `${meta}\n\n${docBlock}` }],
   });

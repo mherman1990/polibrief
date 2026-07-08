@@ -234,6 +234,11 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     } catch (err) {
       console.log(`⚠️  Market cards skipped: ${err.message}`);
     }
+    try {
+      await generateStorylines(env);
+    } catch (err) {
+      console.log(`⚠️  Storylines skipped: ${err.message}`);
+    }
   }
 
   // 2. Local scoring — free, runs before Claude sees anything.
@@ -432,7 +437,9 @@ export async function answerQuery(question, env) {
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const response = await client.messages.create({
     model,
-    max_tokens: 2000,
+    // Headroom for Sonnet 5's default adaptive thinking (it counts against max_tokens) plus a cited,
+    // multi-stream answer — so a reasoning-heavy question can't truncate the reply.
+    max_tokens: 3500,
     system:
       "You are the research assistant for a professional at the Iowa Soybean Association whose remit is BOTH policy and demand/markets. Answer using ONLY the stored monitoring data provided below, which spans three streams: (1) LAWS/RULES/DECISIONS + NEWS items, (2) MARKET DATA (soybean price, crush, stocks, biofuel feedstock share, basis, fund positioning, exports, barge freight, crop condition, weather), and (3) recent BRIEFS, plus tracked items and comment deadlines. The market data carries trend context per series — change vs. prior, year-over-year, the historical range with the latest value's percentile, and a seasonal read (vs. the same month across years). USE that context to explain trends and whether a value is seasonally normal or unusual, not just the latest number. Synthesize across streams when it helps — e.g. connect a policy or trade development to the market numbers. Cite item titles as markdown links when a URL is available; when you cite a market figure, name the series and its period (e.g. \"U.S. crush 210M bu, Apr 2026\"). Use plain, professional English. If the stored data doesn't answer the question, say so plainly rather than guessing.",
     messages: [
@@ -530,7 +537,7 @@ Rules: never invent items or numbers; keep markdown links; nonpartisan and infor
     label: "Market-education brief",
     edition: "education",
     scopeDays: 3,
-    maxTokens: 2200,
+    maxTokens: 3000, // headroom for Sonnet 5's default adaptive thinking + the lesson
     injectCurriculum: true,
     // The stable "teach, don't tell" identity (§1) + the daily-brief task structure (§3).
     system: (dateLabel) => `${EDUCATION_SYSTEM_PROMPT}
@@ -594,7 +601,7 @@ Rules: never invent numbers or items; cite series + period for every figure; kee
     label: "Market Pulse",
     edition: "pulse",
     scopeDays: 4,
-    maxTokens: 2000,
+    maxTokens: 3000, // headroom for Sonnet 5's default adaptive thinking + the note
     injectSignals: true,
     system: (dateLabel) => `You write "The Bean Brief — Market Pulse," a SHORT, time-sensitive read for Iowa soybean farmer-members who are thinking about marketing their grain. This is decision SUPPORT, not a lesson and not advice. Lead with what's happening now; teaching is secondary. Use ONLY the stored data.
 
@@ -818,7 +825,8 @@ export async function generateMarketCards(env = process.env) {
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.BRIEF_MODEL || "claude-sonnet-5";
-  const resp = await client.messages.create({ model, max_tokens: 1500, system, messages: [{ role: "user", content: user }] });
+  // max_tokens headroom for Sonnet 5's default adaptive thinking (counts against the budget) + the cards.
+  const resp = await client.messages.create({ model, max_tokens: 2500, system, messages: [{ role: "user", content: user }] });
   store.recordUsage(model, "cards", resp.usage.input_tokens, resp.usage.output_tokens);
   let markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
 
@@ -835,6 +843,97 @@ export async function generateMarketCards(env = process.env) {
 export function getCachedMarketCards() {
   try {
     const v = store.getState("market_cards");
+    return v ? JSON.parse(v) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Storyline memory — cluster the recent relevant items into a handful of named, persistent THREADS
+ * (45Z, EUDR, Summit CO2 pipeline, RD/soy-oil demand, China trade…), each with a "what changed &
+ * why it matters" summary and a dated timeline. One Sonnet call. Threads are upserted by a stable
+ * key and CONTINUED by name across runs (existing names fed in), so a storyline accumulates memory
+ * rather than resetting. Stored in the storylines table; a homepage panel reads it. @returns {{count}|null}
+ */
+export async function generateStorylines(env = process.env) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
+  // Recent relevant items across LRD (triaged relevant) + news. News is never triaged, so pull by class.
+  const official = store.listItems({ verdict: "relevant", days: 21, sourceIds: sourceIdsForClass("official"), limit: 60 });
+  const news = store.listItems({ days: 21, sourceIds: sourceIdsForClass("news"), limit: 40 });
+  const items = [...official, ...news];
+  if (items.length < 3) return null; // too little to cluster into threads
+  const lines = items.map((it, i) =>
+    `[${i + 1}] ${(it.first_seen_at || "").slice(0, 10)} · ${it.title}${it.one_line ? ` — ${it.one_line}` : ""}${it.url ? ` (${it.url})` : ""}`
+  );
+  const existing = store.listStorylines(20).map((s) => s.name);
+
+  const system =
+    `You maintain the "storylines" for the Iowa Soybean Association's policy & market monitor — the handful of ongoing THREADS the news is really about (e.g. "45Z Clean Fuel Production Credit", "EU Deforestation Regulation (EUDR)", "Summit Carbon CO2 Pipeline", "Renewable diesel & soybean-oil demand", "China soybean trade"). Cluster the monitoring items below into 3–7 active storylines. For each, write what recently changed and why it matters to Iowa soybeans, plus a short dated timeline.\n\n` +
+    `CONTINUE existing threads by their EXACT name where items fit one (list provided) — do not rename or fork a thread that already exists. Only include storylines with genuine recent activity in these items; ignore one-off noise that belongs to no thread.\n\n` +
+    `Return ONLY a JSON array (no prose, no code fence). Each element:\n` +
+    `{"key":"<stable-kebab-slug>","name":"<thread name>","focus":"<one line: what this thread is>","whatChanged":"<2–3 sentences: what developed recently and why it matters to Iowa soy>","timeline":[{"date":"YYYY-MM-DD","event":"<short>","url":"<source url or empty>"}]}\n` +
+    `Timeline most-recent-first, max 5 entries, dates from the item dates. Keys are stable slugs so a thread keeps its key across updates.`;
+  const user =
+    `EXISTING STORYLINE NAMES (continue these where they fit):\n${existing.length ? existing.map((n) => `- ${n}`).join("\n") : "(none yet)"}\n\n` +
+    `MONITORING ITEMS (last 21 days):\n${lines.join("\n")}`;
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const model = env.BRIEF_MODEL || "claude-sonnet-5";
+  // Disable thinking: this is a structured-JSON clustering task, not a reasoning one. On Sonnet 5
+  // (our BRIEF_MODEL) adaptive thinking is ON by default and counts against max_tokens — left on it
+  // eats the whole budget and returns an empty text block. max_tokens is generous because the full
+  // JSON (up to 7 threads × a paragraph + a 5-entry timeline) runs a few thousand tokens; too small
+  // truncates the array mid-object and it won't parse.
+  const resp = await client.messages.create({ model, max_tokens: 4500, thinking: { type: "disabled" }, system, messages: [{ role: "user", content: user }] });
+  store.recordUsage(model, "storylines", resp.usage.input_tokens, resp.usage.output_tokens);
+  const text = resp.content.find((b) => b.type === "text")?.text ?? "";
+  let arr = [];
+  try {
+    arr = JSON.parse(text.slice(text.indexOf("["), text.lastIndexOf("]") + 1)); // tolerate stray prose around the array
+  } catch {
+    arr = [];
+  }
+  if (!Array.isArray(arr) || !arr.length) {
+    console.log("⚠️  Storylines: model returned no parseable threads");
+    return null;
+  }
+  const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+  let saved = 0;
+  for (const s of arr) {
+    if (!s || !s.name) continue;
+    const key = slug(s.key || s.name);
+    if (!key) continue;
+    const timeline = Array.isArray(s.timeline)
+      ? s.timeline
+          .filter((e) => e && e.event)
+          .slice(0, 5)
+          .map((e) => ({
+            date: String(e.date || "").slice(0, 10),
+            event: String(e.event).slice(0, 240),
+            url: typeof e.url === "string" && /^https?:/.test(e.url) ? e.url : "",
+          }))
+      : [];
+    store.upsertStoryline({
+      key,
+      name: String(s.name).slice(0, 120),
+      focus: s.focus ? String(s.focus).slice(0, 200) : null,
+      summary: s.whatChanged ? String(s.whatChanged).slice(0, 800) : null,
+      timeline,
+      itemCount: timeline.length,
+    });
+    saved++;
+  }
+  store.pruneStorylines(30);
+  store.setState("storylines_meta", JSON.stringify({ generatedAt: new Date().toISOString(), count: saved }));
+  console.log(`🧵 Storylines: ${saved} active thread${saved === 1 ? "" : "s"} updated`);
+  return { count: saved };
+}
+
+/** Metadata about the last storyline generation ({ generatedAt, count }) or null. */
+export function getStorylinesMeta() {
+  try {
+    const v = store.getState("storylines_meta");
     return v ? JSON.parse(v) : null;
   } catch {
     return null;

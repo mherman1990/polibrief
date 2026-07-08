@@ -87,6 +87,20 @@ function crushDemand(m) {
   };
 }
 
+function stocksToUse(m) {
+  const s = m.get("wasde:us:soy-stocks-to-use");
+  if (!s || !isFresh(s, 75)) return null; // WASDE is monthly; tolerate a skipped release
+  const v = s.latest.value; // U.S. ending stocks as a % of total use — the balance-sheet tightness ratio
+  // Level-based (meaningful from a single point): a thin cushion is bullish, a fat one bearish.
+  const direction = v < 8 ? "bullish" : v > 15 ? "bearish" : "neutral";
+  const rel = `${monthOf(s.latest.period)} ${String(s.latest.period).slice(0, 4)}`;
+  return {
+    id: "stocks_to_use", name: "Stocks-to-Use", direction, value: v,
+    label: `${v.toFixed(1)}% S/U`,
+    detail: `The ${rel} WASDE puts U.S. soybean ending stocks at ${v.toFixed(1)}% of total use. ${direction === "bullish" ? "A tight balance sheet (below ~8%) leaves little cushion and supports price." : direction === "bearish" ? "An ample balance sheet (above ~15%) is a comfortable cushion that weighs on price." : "A middling balance sheet — neither tight nor burdensome."}`,
+  };
+}
+
 function feedstockShare(m) {
   const soy = m.get("eia:feedstock:soybean-oil");
   if (!soy || !soy.trail || soy.trail.length < 2) return null;
@@ -155,7 +169,7 @@ function dollar(m) {
   };
 }
 
-const SCORERS = [cropCondition, drought, exportPace, fundPositioning, crushDemand, feedstockShare, brazilSupply, dollar];
+const SCORERS = [cropCondition, drought, exportPace, fundPositioning, crushDemand, stocksToUse, feedstockShare, brazilSupply, dollar];
 
 /**
  * Compute the current signal board from stored market data.

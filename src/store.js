@@ -405,6 +405,62 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS kv_state ( k TEXT PRIMARY KEY, v TEXT, updated_at TEXT );
 `);
+
+// ---------- storylines (named threads with memory) ----------
+// The handful of ongoing THREADS the monitoring is really about (45Z, EUDR, Summit CO2 pipeline…).
+// Auto-clustered from recent relevant items each run (see pipeline.generateStorylines), but PERSISTENT:
+// a thread keeps its key + first_seen across updates, so "what changed this week" and the timeline
+// accumulate rather than resetting. Extends the manual tracked_items pins with automatic threads.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS storylines (
+    key        TEXT PRIMARY KEY,   -- stable kebab slug (kept across updates)
+    name       TEXT NOT NULL,
+    focus      TEXT,               -- one-line what the thread is about
+    summary    TEXT,               -- latest "what changed & why it matters"
+    timeline   TEXT,               -- JSON array [{date, event, url}] most-recent-first
+    item_count INTEGER DEFAULT 0,
+    first_seen TEXT,               -- when the thread first appeared (never overwritten)
+    updated_at TEXT NOT NULL
+  );
+`);
+export function upsertStoryline(s) {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO storylines (key, name, focus, summary, timeline, item_count, first_seen, updated_at)
+       VALUES (@key, @name, @focus, @summary, @timeline, @item_count, @now, @now)
+     ON CONFLICT(key) DO UPDATE SET
+       name = excluded.name, focus = excluded.focus, summary = excluded.summary,
+       timeline = excluded.timeline, item_count = excluded.item_count, updated_at = excluded.updated_at`
+  ).run({
+    key: s.key,
+    name: s.name,
+    focus: s.focus ?? null,
+    summary: s.summary ?? null,
+    timeline: JSON.stringify(s.timeline ?? []),
+    item_count: s.itemCount ?? (Array.isArray(s.timeline) ? s.timeline.length : 0),
+    now,
+  });
+  return s.key;
+}
+export function listStorylines(limit = 12) {
+  return db
+    .prepare("SELECT * FROM storylines ORDER BY updated_at DESC, item_count DESC LIMIT ?")
+    .all(limit)
+    .map((r) => {
+      let timeline = [];
+      try {
+        timeline = JSON.parse(r.timeline || "[]");
+      } catch {
+        /* leave empty */
+      }
+      return { ...r, timeline };
+    });
+}
+/** Drop threads not refreshed in `maxAgeDays` — a storyline that stopped developing ages off. */
+export function pruneStorylines(maxAgeDays = 30) {
+  const cutoff = new Date(Date.now() - maxAgeDays * 86400e3).toISOString();
+  db.prepare("DELETE FROM storylines WHERE updated_at < ?").run(cutoff);
+}
 export function recordAlert(category, title, detail) {
   db.prepare("INSERT INTO alerts (created_at, category, title, detail, seen) VALUES (?, ?, ?, ?, 0)").run(
     new Date().toISOString(), category ?? null, title, detail ?? null

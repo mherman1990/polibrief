@@ -122,6 +122,15 @@ program
   });
 
 program
+  .command("storylines")
+  .description("Cluster recent relevant items into named, persistent storyline threads")
+  .action(async () => {
+    const { generateStorylines } = await import("./pipeline.js");
+    const s = await generateStorylines(process.env);
+    console.log(s ? `🧵 Storylines updated (${s.count} active thread${s.count === 1 ? "" : "s"}).` : "   (not enough recent items to cluster yet)");
+  });
+
+program
   .command("alerts-check")
   .description("Detect material market changes since last check → the 'what changed' feed")
   .action(async () => {

@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.12.0 — WASDE stocks-to-use, storylines, figure drill-down, source-value ledger
+
+### Added
+- **USDA WASDE balance sheet is live.** The soybean cell-extraction is finished (the report is
+  SSRS-matrix XML — soybeans are the acreage / $-per-bushel matrix in the combined "Soybeans and
+  Products" table, distinguished from meal and oil positionally). Adds a **U.S. soybean
+  stocks-to-use** scorer to the Markets signal board — level-based, so it reads from a single
+  release (below ~8% tight/supportive, above ~15% ample/bearish) — plus two charts (U.S. ending
+  stocks in mln bu, stocks-to-use %). World ending stocks (MMT) ride in the WASDE item summary.
+- **Storylines** — the monitor now auto-clusters recent items into the handful of ongoing named
+  threads the news is really about (45Z, renewable diesel, China trade, EUDR…), each with a "what
+  changed & why it matters" summary and a dated timeline that links out to sources. A 🧵 panel on
+  the homepage, a Refresh button, and a `storylines` CLI command; threads persist and accumulate
+  across runs.
+- **Figure drill-down** — when an answer, brief, or education card names a market series ("U.S.
+  soybean crush", "stocks-to-use"…), that name now links straight to its chart on the Markets tab.
+
+### Changed
+- **The Sources page is now a value ledger, framed by class.** Official (AI-triaged) sources show
+  their relevance pass-rate; News and Markets sources — which aren't triaged — show "coverage feed"
+  instead of a misleading 0% that made them look like noise. Fetched counts show last-7-days and
+  all-time.
+
+### Fixed
+- **Token-budget reliability on Sonnet 5.** Sonnet 5 runs adaptive thinking by default, and thinking
+  counts against a call's token budget — on tight budgets it could consume the whole allowance and
+  return truncated or empty output. Thinking is now disabled where it adds nothing (storylines, item
+  summaries), and the Ask box, Market Pulse, Market-education brief, and farmer cards were given
+  token headroom.
+
 ## 1.11.0 — Crop-weather engine; WASDE & Barchart groundwork
 
 ### Added
