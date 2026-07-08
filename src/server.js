@@ -22,6 +22,7 @@ import path from "node:path";
 import * as store from "./store.js";
 import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist } from "./pipeline.js";
 import { computeSignals } from "./signals.js";
+import { upcomingReports } from "./calendar.js";
 import { adapters, sourceIdsForClass } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
 import { summarizeItem, summaryExpiry } from "./summarize.js";
@@ -169,6 +170,12 @@ function page(title, body) {
   pre.logs { background: #f3f6f9; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
     font-size: .8rem; overflow-x: auto; white-space: pre-wrap; color: var(--ink); }
   .fb { opacity: .55; } .fb.on { opacity: 1; }
+  .report-cal { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 18px; padding: 8px 14px;
+    border: 1px solid var(--isa-gold); background: var(--isa-gold-40); border-radius: 8px; font-size: .85em; }
+  .report-cal .rc-lbl { font-weight: 700; color: var(--isa-dark); white-space: nowrap; }
+  .report-cal .rc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  .report-cal .rc-list li { white-space: nowrap; }
+  .report-cal .rc-date { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--isa-dark); margin-right: 3px; }
   .signals { margin: 6px 0 22px; }
   .sig-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
   .tilt { font-weight: 700; font-size: .82em; padding: 3px 12px; border-radius: 999px; text-transform: capitalize; }
@@ -652,6 +659,22 @@ function signalsBoard() {
   </section>`;
 }
 
+// The release calendar — what market-moving reports are imminent (time-sensitivity).
+function reportCalendar() {
+  let list;
+  try {
+    list = upcomingReports(21);
+  } catch {
+    return "";
+  }
+  if (!list.length) return "";
+  const items = list
+    .slice(0, 6)
+    .map((r) => `<li title="${esc(r.note)}"><span class="rc-date">${esc(r.date.slice(5))}</span> <strong>${esc(r.name)}</strong> <span class="muted">${esc(r.agency)}</span></li>`)
+    .join("");
+  return `<div class="report-cal"><span class="rc-lbl">📅 Coming up</span><ul class="rc-list">${items}</ul></div>`;
+}
+
 function marketsBody() {
   const charts = [
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
@@ -683,6 +706,7 @@ function marketsBody() {
     : "";
   return `<h1>📈 Markets &amp; Demand</h1>
     ${signalsBoard()}
+    ${reportCalendar()}
     ${rangeBar}
     ${charts || '<p class="muted">Charts populate after a run (or <code>market-refresh</code>) once the USDA/EIA keys are set.</p>'}
     <h2 style="margin-top:22px">Latest data points</h2>
