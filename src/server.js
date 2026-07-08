@@ -306,14 +306,15 @@ const SAFE_BRIEF_NAME = /^\d{4}-\d{2}-\d{2}-(am|pm|weekly|monthly|farmer|educati
 // ---------- run management ----------
 let runInProgress = false;
 let lastRunProblem = null; // { when, message }
+const RUN_BUSY_MESSAGE = "A run is already in progress — give it a minute.";
 
 async function triggerRun(edition) {
-  if (runInProgress) return "A run is already in progress — give it a minute.";
+  if (runInProgress) return RUN_BUSY_MESSAGE;
   runInProgress = true;
+  lastRunProblem = null; // a new run replaces any earlier failure; the bounce above is not a new run
   try {
     if (["weekly", "monthly", "farmer", "education", "analyst", "pulse"].includes(edition)) await runMemo(edition, process.env);
     else await runPipeline({ edition, env: process.env });
-    lastRunProblem = null;
     return null;
   } catch (err) {
     console.error(`❌ ${edition} run failed: ${err.message}`);
@@ -1499,10 +1500,24 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           const hh = Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hour12: false }).format(new Date()));
           edition = hh >= 12 ? "pm" : "am";
         }
-        triggerRun(edition).then((problem) => {
+        // Give the race a moment: memo editions fast-fail (e.g. missing API key) in microseconds,
+        // and the "already in progress" bounce resolves instantly. A fast failure redirects with
+        // no notice — the red lastRunProblem banner is the sole signal; the bounce keeps its
+        // notice (no red banner exists for a bounce); anything still running after the delay
+        // gets the optimistic notice as before.
+        const runPromise = triggerRun(edition);
+        runPromise.then((problem) => {
           if (problem) console.log(`⚠️  ${problem}`);
         });
-        redirect(res, `/?notice=${encodeURIComponent(`${edition.toUpperCase()} run started — refresh in a minute or two. Problems will appear in a red banner here.`)}`);
+        const outcome = await Promise.race([runPromise, new Promise((resolve) => setTimeout(resolve, 400))]);
+        if (typeof outcome === "string" && outcome !== RUN_BUSY_MESSAGE) {
+          redirect(res, "/");
+          return;
+        }
+        const notice = outcome === RUN_BUSY_MESSAGE
+          ? outcome
+          : `${edition.toUpperCase()} run started — refresh in a minute or two. Problems will appear in a red banner here.`;
+        redirect(res, `/?notice=${encodeURIComponent(notice)}`);
         return;
       }
 
