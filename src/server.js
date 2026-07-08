@@ -179,6 +179,7 @@ function page(title, body) {
   .report-cal .rc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 18px; }
   .report-cal .rc-list li { white-space: nowrap; }
   .report-cal .rc-date { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--isa-dark); margin-right: 3px; }
+  .report-cal .rc-imp { font-size: .82em; font-weight: 700; color: var(--isa-rust); }
   .signals { margin: 6px 0 22px; }
   .sig-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
   .tilt { font-weight: 700; font-size: .82em; padding: 3px 12px; border-radius: 999px; text-transform: capitalize; }
@@ -704,9 +705,10 @@ function reportCalendar() {
     return "";
   }
   if (!list.length) return "";
+  const badge = (imp) => (imp === "very_high" ? ' <span class="rc-imp">★ high-impact</span>' : imp === "high" ? ' <span class="rc-imp">● notable</span>' : "");
   const items = list
     .slice(0, 6)
-    .map((r) => `<li title="${esc(r.note)}"><span class="rc-date">${esc(r.date.slice(5))}</span> <strong>${esc(r.name)}</strong> <span class="muted">${esc(r.agency)}</span></li>`)
+    .map((r) => `<li title="${esc(r.note)}"><span class="rc-date">${esc(r.date.slice(5))}</span> <strong>${esc(r.name)}</strong>${badge(r.impact)} <span class="muted">${esc(r.agency)}</span></li>`)
     .join("");
   return `<div class="report-cal"><span class="rc-lbl">📅 Coming up</span><ul class="rc-list">${items}</ul></div>`;
 }
