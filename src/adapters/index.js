@@ -33,6 +33,7 @@ import * as usda_ams from "./usda_ams.js";
 import * as agtransport from "./agtransport.js";
 import * as drought_monitor from "./drought_monitor.js";
 import * as ibge_brazil from "./ibge_brazil.js";
+import * as fred from "./fred.js";
 
 export const adapters = {
   [federal_register.id]: federal_register,
@@ -54,6 +55,7 @@ export const adapters = {
   [agtransport.id]: agtransport,
   [drought_monitor.id]: drought_monitor,
   [ibge_brazil.id]: ibge_brazil,
+  [fred.id]: fred,
 };
 
 // Information CLASS per source — decides which portal tab an item surfaces on, and
@@ -82,6 +84,7 @@ export const SOURCE_CLASS = {
   agtransport: "markets",
   drought_monitor: "markets",
   ibge_brazil: "markets",
+  fred: "markets",
 };
 export const classOf = (sourceId) => SOURCE_CLASS[sourceId] ?? "official";
 export const sourceIdsForClass = (cls) => Object.keys(SOURCE_CLASS).filter((s) => SOURCE_CLASS[s] === cls);

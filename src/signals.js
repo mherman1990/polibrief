@@ -142,7 +142,19 @@ function seasonalPrice() {
   };
 }
 
-const SCORERS = [cropCondition, drought, exportPace, fundPositioning, crushDemand, feedstockShare, brazilSupply];
+function dollar(m) {
+  const s = m.get("fred:usd-broad");
+  if (!s || s.percentile == null) return null;
+  const p = s.percentile;
+  const direction = p >= 70 ? "bearish" : p <= 30 ? "bullish" : "neutral";
+  return {
+    id: "dollar", name: "U.S. Dollar", direction, value: s.latest.value,
+    label: `${p}th pctile`,
+    detail: `Broad dollar index ${round(s.latest.value)} (${s.latest.period}), ${p}th percentile of its range${s.changePct != null ? `, ${pctStr(s.changePct)} vs. prior` : ""}. ${direction === "bearish" ? "A strong dollar caps U.S. export competitiveness vs. Brazil." : direction === "bullish" ? "A weaker dollar helps U.S. export competitiveness." : "Dollar mid-range."}`,
+  };
+}
+
+const SCORERS = [cropCondition, drought, exportPace, fundPositioning, crushDemand, feedstockShare, brazilSupply, dollar];
 
 /**
  * Compute the current signal board from stored market data.

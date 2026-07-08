@@ -744,6 +744,8 @@ function marketsBody() {
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
     chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
     chartSection("positioning", "Fund positioning (CFTC)", "CBOT soybean managed-money net position — how the funds are leaning. Extremes can unwind fast.", 240),
+    chartSection("macro_usd", "U.S. dollar index", "The broad trade-weighted dollar (FRED). A stronger dollar makes U.S. soybeans more expensive abroad — a quiet cap on export competitiveness vs. Brazil.", 240),
+    chartSection("macro_rates", "10-year Treasury yield", "The 10-year yield (FRED) — a read on the cost of carrying stored grain.", 220),
   ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
   // Load uPlot + our renderer only on this page, after the chart blobs are in the DOM.
   const chartAssets = charts

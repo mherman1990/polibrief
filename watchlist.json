@@ -104,7 +104,12 @@
     "ibge_brazil": {
       "enabled": true,
       "maxItemsPerRun": 3,
-      "_note": "Markets — IBGE SIDRA (no key): Brazil soybean production + area (LSPA 1618). Competitor-supply signal; queryable series (no chart — needs PAM 1612 for long history)."
+      "_note": "Markets — IBGE SIDRA (no key): Brazil soybean production + area (LSPA 1618 current-crop + PAM 1612 long trend)."
+    },
+    "fred": {
+      "enabled": true,
+      "maxItemsPerRun": 3,
+      "_note": "Markets — FRED macro (free FRED_API_KEY): U.S. broad dollar index + 10-year Treasury yield."
     }
   },
   "focusAreas": [
