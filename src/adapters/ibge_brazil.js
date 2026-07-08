@@ -16,6 +16,19 @@ const BASE = "https://servicodados.ibge.gov.br/api/v3/agregados/1618";
 const SOY = "48[39443]"; // Produto das lavouras = Soja
 const CROP_YEARS = "49[all]"; // Ano da safra — all crop years in the latest estimate
 
+// PAM (Produção Agrícola Municipal, aggregate 1612) — FINAL annual production, long history
+// (1974–), for the multi-year Brazil production trend chart. Variable 214 = produção (t),
+// Produto Soja = classification 81[2713].
+async function pamAnnualProduction() {
+  const url = "https://servicodados.ibge.gov.br/api/v3/agregados/1612/periodos/-16/variaveis/214?localidades=N1[all]&classificacao=81[2713]";
+  const j = await fetchJSON(url);
+  const serie = j?.[0]?.resultados?.[0]?.series?.[0]?.serie ?? {};
+  return Object.entries(serie)
+    .map(([period, raw]) => ({ period, value: Number(String(raw).replace(/[^\d.-]/g, "")) }))
+    .filter((p) => /^\d{4}$/.test(p.period) && Number.isFinite(p.value) && p.value > 0)
+    .sort((a, b) => a.period.localeCompare(b.period));
+}
+
 async function bySafra(variable) {
   const url = `${BASE}/periodos/-1/variaveis/${variable}?localidades=N1[all]&classificacao=${SOY}|${CROP_YEARS}`;
   const j = await fetchJSON(url);
@@ -69,6 +82,12 @@ export async function fetchSeries() {
   try {
     const area = await bySafra("216");
     if (area.points.length) out.push({ series: `${id}:soy-area`, meta: { label: "Brazil soybean area harvested", unit: "ha", category: "brazil_soy_area" }, points: area.points });
+  } catch {
+    /* fail-soft */
+  }
+  try {
+    const annual = await pamAnnualProduction();
+    if (annual.length) out.push({ series: `${id}:soy-production-annual`, meta: { label: "Brazil soybean production", unit: "t", category: "brazil_production" }, points: annual });
   } catch {
     /* fail-soft */
   }

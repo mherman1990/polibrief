@@ -746,6 +746,7 @@ function marketsBody() {
     chartSection("positioning", "Fund positioning (CFTC)", "CBOT soybean managed-money net position — how the funds are leaning. Extremes can unwind fast.", 240),
     chartSection("macro_usd", "U.S. dollar index", "The broad trade-weighted dollar (FRED). A stronger dollar makes U.S. soybeans more expensive abroad — a quiet cap on export competitiveness vs. Brazil.", 240),
     chartSection("macro_rates", "10-year Treasury yield", "The 10-year yield (FRED) — a read on the cost of carrying stored grain.", 220),
+    chartSection("brazil_production", "Brazil soybean production", "Brazil's annual soybean crop (IBGE PAM) — the U.S.'s main export competitor, and the multi-decade rise that reshaped the trade.", 240),
   ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
   // Load uPlot + our renderer only on this page, after the chart blobs are in the DOM.
   const chartAssets = charts
