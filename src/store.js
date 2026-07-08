@@ -284,6 +284,35 @@ export function seriesHistory(series) {
   return { ...meta, points };
 }
 
+/**
+ * Data-freshness check: for every series, how old its latest data point is vs. its own
+ * cadence (inferred from the median spacing of recent points). A series is `stale` when its
+ * newest point is overdue — that's how a silently-broken feed stops looking like a quiet
+ * market. Returns rows sorted oldest-first.
+ */
+export function seriesFreshness() {
+  const metas = db.prepare("SELECT series, label, category, updated_at FROM market_series_meta").all();
+  const out = [];
+  for (const m of metas) {
+    const pts = db.prepare("SELECT period FROM market_series WHERE series = ? ORDER BY period DESC LIMIT 8").all(m.series);
+    const latestMs = pts.length ? periodToMs(pts[0].period) : null;
+    if (latestMs == null) continue;
+    const ageDays = Math.round((Date.now() - latestMs) / 86400e3);
+    const gaps = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = periodToMs(pts[i].period), b = periodToMs(pts[i + 1].period);
+      if (a != null && b != null) gaps.push((a - b) / 86400e3);
+    }
+    gaps.sort((x, y) => x - y);
+    const cadenceDays = gaps.length ? Math.round(gaps[Math.floor(gaps.length / 2)]) : 30;
+    // Overdue only well past its own rhythm — so a source's normal publication lag (e.g. EIA
+    // feedstocks run ~3 months behind) doesn't cry wolf; a genuinely-dead feed still flags.
+    const stale = ageDays > Math.max(cadenceDays * 3.5, 18);
+    out.push({ series: m.series, label: m.label, category: m.category, latest: pts[0].period, ageDays, cadenceDays, stale, refreshedAt: m.updated_at });
+  }
+  return out.sort((a, b) => b.ageDays - a.ageDays);
+}
+
 // ---------- curriculum + glossary (BeanBrief education engine) ----------
 // The knowledge base behind the "teach, don't tell" education layer: a rotating concept
 // bank (drives the daily brief's teaching thread) + a plain-language glossary. See

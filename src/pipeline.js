@@ -141,6 +141,12 @@ export async function refreshMarketSeries(env = process.env) {
       console.log(`⚠️  ${adapter.label} series refresh failed: ${err.message}`);
     }
   }
+  try {
+    const stale = store.seriesFreshness().filter((r) => r.stale);
+    if (stale.length) console.log(`🟠 Data health: ${stale.length} series overdue — ${stale.slice(0, 6).map((s) => s.label).join(", ")}`);
+  } catch {
+    /* freshness check is best-effort */
+  }
   return seriesCount;
 }
 

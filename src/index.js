@@ -103,6 +103,20 @@ program
   });
 
 program
+  .command("data-health")
+  .description("List market series whose latest data point is overdue vs. its cadence")
+  .action(async () => {
+    const store = await import("./store.js");
+    const rows = store.seriesFreshness();
+    const stale = rows.filter((r) => r.stale);
+    console.log(`\n📊 Data health: ${rows.length} series, ${stale.length} overdue\n`);
+    for (const r of rows) {
+      console.log(`   ${r.stale ? "🟠" : "🟢"} ${r.label.padEnd(34)} last ${r.latest} (${String(r.ageDays).padStart(4)}d, ~${r.cadenceDays}d cadence)`);
+    }
+    console.log();
+  });
+
+program
   .command("seed-curriculum")
   .description("Load the education-engine concept bank + glossary into SQLite (idempotent)")
   .action(async () => {

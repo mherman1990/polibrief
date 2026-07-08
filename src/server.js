@@ -679,6 +679,26 @@ function reportCalendar() {
   return `<div class="report-cal"><span class="rc-lbl">📅 Coming up</span><ul class="rc-list">${items}</ul></div>`;
 }
 
+// Data health — flags any market series whose latest point is overdue vs. its own cadence,
+// so a silently-stale feed doesn't read as a quiet market.
+function dataHealth() {
+  let rows;
+  try {
+    rows = store.seriesFreshness();
+  } catch {
+    return "";
+  }
+  if (!rows.length) return "";
+  const stale = rows.filter((r) => r.stale);
+  const staleList = stale
+    .map((r) => `<li><strong>${esc(r.label)}</strong> <span class="muted">(${esc(r.category)})</span> — last ${esc(r.latest)}, ${r.ageDays}d old (expected ~${r.cadenceDays}d cadence)</li>`)
+    .join("");
+  return `<details class="topic data-health"${stale.length ? " open" : ""}>
+    <summary>${stale.length ? `🟠 Data health — ${stale.length} of ${rows.length} series overdue` : `🟢 Data health — all ${rows.length} series current`}</summary>
+    ${stale.length ? `<ul>${staleList}</ul>` : `<p class="muted">Every market series has updated within its expected cadence.</p>`}
+  </details>`;
+}
+
 function marketsBody() {
   const charts = [
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
@@ -715,6 +735,7 @@ function marketsBody() {
     ${charts || '<p class="muted">Charts populate after a run (or <code>market-refresh</code>) once the USDA/EIA keys are set.</p>'}
     <h2 style="margin-top:22px">Latest data points</h2>
     ${feedRows("markets", "No markets data yet — set the USDA/EIA API keys and the demand adapters populate this tab.")}
+    <div style="margin-top:16px">${dataHealth()}</div>
     ${chartAssets}`;
 }
 
