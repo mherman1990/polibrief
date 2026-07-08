@@ -15,6 +15,8 @@ import { saveBrief, postToTeams, sendEmail } from "./deliver.js";
 import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
+import { signalsText } from "./signals.js";
+import { upcomingReportsText } from "./calendar.js";
 
 /** The live watchlist file: the data-volume copy in Docker/Umbrel, else the project one. */
 export function watchlistFilePath() {
@@ -491,6 +493,61 @@ A one-line plain definition for any market term you used (draw from the glossary
 
 Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. Start at the lead. Remember the hard guardrails — explain, never advise.`,
   },
+  analyst: {
+    label: "Analyst Note",
+    edition: "analyst",
+    scopeDays: 14,
+    maxTokens: 3600,
+    injectSignals: true,
+    system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE using ONLY the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs).
+
+Do NOT summarize the period. Do the analysis a headline can't give:
+- Connect across streams — tie a policy/trade development to the market MECHANISM and the numbers (name the series, period, percentile, YoY, seasonal read).
+- Go second-order — not "crush is at a record" but what that implies and what could break it.
+- Be explicit about the SETUP, the RISK to that read, and the DATA OR REPORT THAT WOULD CONFIRM OR KILL IT.
+
+Structure exactly:
+
+## The Bean Brief — Analyst Note, ${dateLabel}
+
+### The read
+3–4 sentences: your current thesis on where soybean demand and price pressure are heading, and why.
+### What the signals say
+Interpret the signal board — where signals agree, where they diverge, and which is doing the most work right now.
+### Around the corner
+2–4 forward-looking points. For each: the setup, the second-order implication, the risk to it, and the data/report that would confirm or deny.
+### Policy → market
+The policy/regulatory items that actually move the demand or price mechanism — and how.
+### On the calendar
+The imminent releases worth positioning attention around, and the specific thing to watch in each.
+
+Rules: never invent numbers or items; cite series + period for every figure; keep every markdown link; omit an empty section. This is analysis, not advice — lay out setups and risks, but do not tell anyone to buy or sell.`,
+  },
+  pulse: {
+    label: "Market Pulse",
+    edition: "pulse",
+    scopeDays: 4,
+    maxTokens: 2000,
+    injectSignals: true,
+    system: (dateLabel) => `You write "The Bean Brief — Market Pulse," a SHORT, time-sensitive read for Iowa soybean farmer-members who are thinking about marketing their grain. This is decision SUPPORT, not a lesson and not advice. Lead with what's happening now; teaching is secondary. Use ONLY the stored data.
+
+THE HARD LINE (never cross it): explain what the data shows and the factors a marketer weighs — NEVER tell a farmer what to do with their grain (no "sell," "hold," "wait," "hedge," or any personalized call). Point decisions to their own grain marketer or broker.
+
+Structure exactly:
+
+## The Bean Brief — Market Pulse, ${dateLabel}
+
+### Which way the wind's blowing
+1–2 sentences from the signal board — the overall tilt and the one or two signals doing the most.
+### What changed
+3–5 bullets: the cash price / basis / demand / weather / positioning that MOVED recently — each with the number, its source + date, and whether it's unusual (use the percentile / seasonal / YoY context). Plain language.
+### What a marketer is weighing
+2–3 short factors a grain marketer would be thinking about right now given the above — framed as considerations, never a recommendation.
+### Coming up
+The next report or two on the calendar that could move things, and by when.
+
+Rules: never invent numbers; cite the source + date of every figure; nonpartisan; keep it to a two-minute read. End with one line: this is market education, not marketing advice — decisions belong with your own marketer or broker.`,
+  },
 };
 
 /**
@@ -547,6 +604,17 @@ export async function generateMemo(presetId, env) {
     if (concept) console.log(`   🎓 teaching concept: ${concept.id}`);
   }
 
+  // For the Analyst Note + Market Pulse: inject the signal board + the release calendar.
+  let signalsBlock = "";
+  if (preset.injectSignals) {
+    const sig = signalsText();
+    const cal = upcomingReportsText(14);
+    signalsBlock =
+      `\n\n=== MARKET SIGNAL BOARD (bull/bear read for soybean price) ===\n${sig || "(no signals computed yet)"}` +
+      `\n\n=== UPCOMING REPORT RELEASES ===\n${cal || "(none in the next two weeks)"}`;
+    console.log(`   📊 signal board + release calendar injected`);
+  }
+
   const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
   console.log(`\n📝 ${preset.label}: ${official.length + news.length} items + ${marketBlock ? "market data" : "no market data"} over the last ${preset.scopeDays}d (${model})…`);
 
@@ -565,7 +633,8 @@ export async function generateMemo(presetId, env) {
           `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
           `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +
           `=== DAILY BRIEFS IN WINDOW ===\n${briefTexts.join("\n\n") || "(none)"}` +
-          curriculumBlock,
+          curriculumBlock +
+          signalsBlock,
       },
     ],
   });
