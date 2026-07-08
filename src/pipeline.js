@@ -11,7 +11,8 @@ import { collectAll } from "./collect.js";
 import { scoreItems } from "./score.js";
 import { triageItems } from "./triage.js";
 import { generateBrief } from "./brief.js";
-import { saveBrief, postToTeams, sendEmail } from "./deliver.js";
+import { saveBrief, postToTeams, sendEmail, sendAlertEmail } from "./deliver.js";
+import { detectChanges } from "./alerts.js";
 import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
@@ -150,6 +151,31 @@ export async function refreshMarketSeries(env = process.env) {
   return seriesCount;
 }
 
+/**
+ * Detect material market changes → the "what changed" alert feed. Emails the digest only when
+ * opted in (watchlist output.alertEmail) and SMTP is configured. Returns the new alerts.
+ */
+export async function runAlertsCheck(env = process.env, output = null) {
+  let changes = [];
+  try {
+    changes = detectChanges();
+  } catch (err) {
+    console.log(`⚠️  Change detection skipped: ${err.message}`);
+    return [];
+  }
+  if (changes.length) {
+    console.log(`🔔 ${changes.length} market change alert${changes.length === 1 ? "" : "s"}: ${changes.slice(0, 4).map((c) => c.title).join("; ")}${changes.length > 4 ? "…" : ""}`);
+    if (output?.alertEmail === true) {
+      try {
+        if (await sendAlertEmail(changes, env)) console.log("   📧 alert digest emailed");
+      } catch (err) {
+        console.log(`⚠️  Alert email failed: ${err.message}`);
+      }
+    }
+  }
+  return changes;
+}
+
 export async function runPipeline({ edition = "am", dryRun = false, source = null, env = process.env }) {
   const watchlist = loadWatchlist();
 
@@ -186,8 +212,12 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     console.log(`🗂️  Stored ${sideItems.length} news/markets item${sideItems.length === 1 ? "" : "s"} for their tabs (kept out of the brief).`);
   }
 
-  // 1c. Refresh market timeseries (Markets charts) from any adapter exposing fetchSeries.
-  if (!dryRun) await refreshMarketSeries(env);
+  // 1c. Refresh market timeseries (Markets charts) from any adapter exposing fetchSeries,
+  //     then detect material changes → the "what changed" alert feed (event-driven).
+  if (!dryRun) {
+    await refreshMarketSeries(env);
+    await runAlertsCheck(env, watchlist.output);
+  }
 
   // 2. Local scoring — free, runs before Claude sees anything.
   console.log(`\n🔎 Scoring ${officialItems.length} new item${officialItems.length === 1 ? "" : "s"}…`);

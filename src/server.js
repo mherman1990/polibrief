@@ -170,6 +170,9 @@ function page(title, body) {
   pre.logs { background: #f3f6f9; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
     font-size: .8rem; overflow-x: auto; white-space: pre-wrap; color: var(--ink); }
   .fb { opacity: .55; } .fb.on { opacity: 1; }
+  ul.whatchanged { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  ul.whatchanged li { font-size: .9em; line-height: 1.42; }
+  ul.whatchanged .wc-when { font-size: .8em; color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 5px; white-space: nowrap; }
   .report-cal { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 18px; padding: 8px 14px;
     border: 1px solid var(--isa-gold); background: var(--isa-gold-40); border-radius: 8px; font-size: .85em; }
   .report-cal .rc-lbl { font-weight: 700; color: var(--isa-dark); white-space: nowrap; }
@@ -442,6 +445,24 @@ function settingsSection(watchlist, openId) {
 </details>`;
 }
 
+// The "what changed" feed — recent event-driven market alerts (src/alerts.js).
+function whatChangedSection() {
+  let alerts;
+  try {
+    alerts = store.listAlerts(12);
+  } catch {
+    return "";
+  }
+  if (!alerts.length) return "";
+  const icon = { signal: "🔀", tilt: "🧭", extreme: "🚩", move: "📈" };
+  const items = alerts
+    .map(
+      (a) => `<li><span class="wc-when">${esc(fmtCT(a.created_at))}</span> ${icon[a.category] || "•"} <strong>${esc(a.title)}</strong>${a.detail ? ` <span class="muted">${esc(a.detail)}</span>` : ""}</li>`
+    )
+    .join("");
+  return `<details class="topic" open><summary>🔔 What changed <span class="muted">(${alerts.length})</span></summary><ul class="whatchanged">${items}</ul></details>`;
+}
+
 function homeBody(notice, openId = null, search = null) {
   const briefs = store.listBriefs(60);
   const items = briefs
@@ -484,6 +505,7 @@ ${search?.result ? `<div class="answer">${markdownToHtml(search.result.answer)}<
 ${lastRunProblem ? `<div class="banner err">❌ ${esc(lastRunProblem.message)} <span class="muted">(${esc(lastRunProblem.when)})</span><br><span class="muted">Most common cause: missing API keys — edit the .env file in the app's data folder, then restart the app. Details on the <a href="/logs">Logs page</a>.</span></div>` : ""}
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${searchSection}
+${whatChangedSection()}
 <p>
   <form method="post" action="/run"><input type="hidden" name="edition" value="am"><button>▶ Run AM brief now</button></form>
   <form method="post" action="/run"><input type="hidden" name="edition" value="pm"><button>▶ Run PM brief now</button></form>

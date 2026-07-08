@@ -114,3 +114,23 @@ export async function sendFarmerEmail(markdown, edition, env) {
   });
   return true;
 }
+
+/**
+ * "What changed" alert digest → BRIEF_EMAIL_TO (or ALERT_EMAIL_TO). Returns false (skips) when
+ * SMTP isn't configured. Only called when the caller has opted in (watchlist output.alertEmail).
+ */
+export async function sendAlertEmail(changes, env) {
+  const to = env.ALERT_EMAIL_TO || env.BRIEF_EMAIL_TO;
+  const configured = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && to;
+  if (!configured || !changes?.length) return false;
+  const markdown =
+    `## The Bean Brief — what changed\n\n` +
+    changes.map((c) => `- **${c.title}**${c.detail ? ` — ${c.detail}` : ""}`).join("\n");
+  await sendMarkdownEmail({
+    markdown,
+    subject: `The Bean Brief — ${changes.length} market change${changes.length === 1 ? "" : "s"}`,
+    to,
+    env,
+  });
+  return true;
+}

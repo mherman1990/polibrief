@@ -97,9 +97,19 @@ program
   .command("market-refresh")
   .description("Refresh market timeseries (Markets charts) from adapters with fetchSeries")
   .action(async () => {
-    const { refreshMarketSeries } = await import("./pipeline.js");
+    const { refreshMarketSeries, runAlertsCheck } = await import("./pipeline.js");
     const n = await refreshMarketSeries(process.env);
     console.log(`📈 Refreshed ${n} market series.`);
+    await runAlertsCheck(process.env);
+  });
+
+program
+  .command("alerts-check")
+  .description("Detect material market changes since last check → the 'what changed' feed")
+  .action(async () => {
+    const { runAlertsCheck } = await import("./pipeline.js");
+    const changes = await runAlertsCheck(process.env);
+    if (!changes.length) console.log("   (no material changes since last check)");
   });
 
 program

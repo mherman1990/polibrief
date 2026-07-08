@@ -387,6 +387,45 @@ export function getTerm(term) {
   return db.prepare("SELECT term, definition FROM glossary WHERE term = ? COLLATE NOCASE").get(term);
 }
 
+// ---------- change alerts ("what changed" feed) + tiny kv state ----------
+// Alerts fire when the market data materially moves (a signal flips, a series hits a multi-year
+// extreme, a big single-period jump) — event-driven, not on a timer. kv_state holds the prior
+// snapshot the detector compares against (see src/alerts.js).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS alerts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    category   TEXT,
+    title      TEXT NOT NULL,
+    detail     TEXT,
+    seen       INTEGER DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS kv_state ( k TEXT PRIMARY KEY, v TEXT, updated_at TEXT );
+`);
+export function recordAlert(category, title, detail) {
+  db.prepare("INSERT INTO alerts (created_at, category, title, detail, seen) VALUES (?, ?, ?, ?, 0)").run(
+    new Date().toISOString(), category ?? null, title, detail ?? null
+  );
+}
+export function listAlerts(limit = 40) {
+  return db.prepare("SELECT * FROM alerts ORDER BY id DESC LIMIT ?").all(limit);
+}
+export function unseenAlertCount() {
+  return db.prepare("SELECT COUNT(*) AS n FROM alerts WHERE seen = 0").get().n;
+}
+export function markAlertsSeen() {
+  db.prepare("UPDATE alerts SET seen = 1 WHERE seen = 0").run();
+}
+export function getState(k) {
+  const r = db.prepare("SELECT v FROM kv_state WHERE k = ?").get(k);
+  return r ? r.v : undefined;
+}
+export function setState(k, v) {
+  db.prepare(
+    "INSERT INTO kv_state (k, v, updated_at) VALUES (?, ?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at"
+  ).run(k, String(v), new Date().toISOString());
+}
+
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,
