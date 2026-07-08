@@ -17,6 +17,7 @@ import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
 import { signalsText } from "./signals.js";
+import { weatherRiskText } from "./weather.js";
 import { upcomingReportsText, upcomingReports } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
 import { evaluateTriggers, triggersText } from "./triggers.js";
@@ -132,8 +133,11 @@ function printScoredTable(kept, dropped) {
  */
 export async function refreshMarketSeries(env = process.env) {
   let seriesCount = 0;
+  let watchlist = {};
+  try { watchlist = loadWatchlist(); } catch { /* no watchlist → refresh everything */ }
   for (const adapter of Object.values(adapters)) {
     if (typeof adapter.fetchSeries !== "function") continue;
+    if (watchlist.sources?.[adapter.id]?.enabled === false) continue; // skip disabled market sources
     try {
       const list = await adapter.fetchSeries({ env });
       for (const s of list) {
@@ -437,6 +441,7 @@ export async function answerQuery(question, env) {
         content:
           `Question: ${question}\n\n` +
           `=== MARKET DATA (latest value, change vs prior, recent trail) ===\n${marketBlock || "(no market data stored yet)"}\n\n` +
+          (weatherRiskText() ? `=== CROP-WEATHER READ (anomaly vs. normal → supply/price) ===\n${weatherRiskText()}\n\n` : "") +
           `=== LAWS/RULES/DECISIONS + NEWS items (JSON) ===\n${JSON.stringify(compactHits, null, 1)}\n\n` +
           `=== TRACKED ITEMS (pinned) ===\n${tracked.length ? tracked.map((t) => `- ${t.title}${t.jurisdiction ? ` (${t.jurisdiction})` : ""}${t.url ? ` ${t.url}` : ""}`).join("\n") : "(none)"}\n\n` +
           `=== UPCOMING COMMENT DEADLINES ===\n${deadlines.length ? deadlines.map((d) => `- ${d.comment_deadline}: ${d.title}${d.url ? ` ${d.url}` : ""}`).join("\n") : "(none)"}\n\n` +

@@ -11,6 +11,7 @@
 // Analyst presets, and the change alerts.
 
 import * as store from "./store.js";
+import { weatherSignals } from "./weather.js";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthOf = (period) => MON[(Number(String(period).slice(5, 7)) || 1) - 1];
@@ -163,7 +164,7 @@ const SCORERS = [cropCondition, drought, exportPace, fundPositioning, crushDeman
 export function computeSignals() {
   const snapshot = store.marketSnapshot();
   const m = new Map(snapshot.map((s) => [s.series, s]));
-  const signals = [...SCORERS.map((fn) => fn(m)), seasonalPrice()].filter(Boolean);
+  const signals = [...SCORERS.map((fn) => fn(m)), seasonalPrice(), ...weatherSignals(m)].filter(Boolean);
   const bullish = signals.filter((s) => s.direction === "bullish").length;
   const bearish = signals.filter((s) => s.direction === "bearish").length;
   const neutral = signals.filter((s) => s.direction === "neutral").length;

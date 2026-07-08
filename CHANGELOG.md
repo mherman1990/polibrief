@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.11.0 — Crop-weather engine; WASDE & Barchart groundwork
+
+### Added
+- **Crop-weather engine** — an anomaly-vs-normal weather layer that reasons weather → supply →
+  price. The Open-Meteo adapter now computes recent 30-day precipitation and heat as **percentiles
+  against ~20 years of ERA5 history** for the U.S. soybean belt and the South American crop
+  (production-weighted; free, no key — no PRISM needed). A new `weather.js` engine turns those into
+  **phenology-weighted signal-board scorers** — stress in a yield-sensitive window (e.g. U.S.
+  pod-fill) supports price; a benign crop weighs on it, and off-season regions drop off the board —
+  plus a weather read injected into the Analyst Note, Market Pulse, and Ask box. Two new Markets
+  charts (U.S. and S. America weather anomaly).
+
+### Groundwork (ships disabled; ready to switch on)
+- **USDA WASDE balance sheet** adapter — the machine-readable feed (`esmis.nal.usda.gov`), the
+  release backfill, and the adapter are in place; the soybean cell-extraction (soybeans vs. meal/oil
+  in the combined U.S. table) needs finishing, so it ships **disabled**. Adds U.S. stocks-to-use +
+  world stocks + a stocks-to-use signal once enabled.
+- **Barchart** adapter — futures / forward-curve / local-basis scaffold. No-ops without
+  `BARCHART_API_KEY`; a config-flip and one live test once the key lands.
+
+### Changed
+- The market-series refresh now skips **disabled** sources — no wasted fetches.
+
 ## 1.10.0 — One daily brief, market education on the Markets tab, smarter report models
 
 ### Changed

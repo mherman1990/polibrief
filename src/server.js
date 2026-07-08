@@ -788,6 +788,8 @@ function marketsBody(notice) {
     chartSection("soy_stocks", "U.S. soybean stocks", "Quarterly ending stocks — the supply cushion behind price.", 260),
     chartSection("soy_condition", "Soybean crop condition", "In-season % rated good or excellent (USDA Crop Progress) — Iowa vs. U.S. Weather's fingerprint on this year's yield potential.", 260),
     chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
+    chartSection("weather_us", "U.S. crop-weather anomaly", "Recent 30-day precipitation and heat vs. the ~27-year normal for the U.S. soybean belt (Open-Meteo / ERA5), production-weighted. Percentiles: low precip = drier than normal, high heat = hotter — both crop stress.", 240),
+    chartSection("weather_sa", "S. America crop-weather anomaly", "The same anomaly read for the Brazil/Argentina soybean crop — the competitor-supply signal. Stress there shifts demand toward the U.S.", 240),
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
     chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
     chartSection("positioning", "Fund positioning (CFTC)", "CBOT soybean managed-money net position — how the funds are leaning. Extremes can unwind fast.", 240),

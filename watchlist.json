@@ -110,6 +110,16 @@
       "enabled": true,
       "maxItemsPerRun": 3,
       "_note": "Markets — FRED macro (free FRED_API_KEY): U.S. broad dollar index + 10-year Treasury yield."
+    },
+    "wasde": {
+      "enabled": false,
+      "maxItemsPerRun": 3,
+      "_note": "Markets — USDA WASDE balance sheet (no key). DISABLED: adapter + release backfill work; the soybean cell-extraction (soybeans vs meal/oil in the combined U.S. table) needs finishing — see STATE.md. Enable after that."
+    },
+    "barchart": {
+      "enabled": false,
+      "maxItemsPerRun": 5,
+      "_note": "Markets — Barchart OnDemand (needs BARCHART_API_KEY). SCAFFOLD: no-ops without a key. Enable + confirm response fields once the key lands."
     }
   },
   "focusAreas": [
