@@ -217,6 +217,11 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
   if (!dryRun) {
     await refreshMarketSeries(env);
     await runAlertsCheck(env, watchlist.output);
+    try {
+      await generateNewsDigest(env);
+    } catch (err) {
+      console.log(`⚠️  News digest skipped: ${err.message}`);
+    }
   }
 
   // 2. Local scoring — free, runs before Claude sees anything.
@@ -689,6 +694,42 @@ export async function runMemo(presetId, env) {
 /** The Friday weekly memo — now a preset of the memo engine (kept for the scheduler + CLI). */
 export async function runWeekly(env) {
   return runMemo("weekly", env);
+}
+
+/**
+ * News daily digest — a cheap Haiku synthesis that DISTILLS the last two days of news items
+ * (collector newsletters + press RSS) into themes, rather than relisting the feed. Cached in
+ * kv_state (regenerated on demand). @returns {{ markdown, date, count } | null}
+ */
+export async function generateNewsDigest(env = process.env) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
+  const items = store.listItems({ days: 2, sourceIds: sourceIdsForClass("news"), limit: 70 });
+  if (!items.length) return null;
+  const list = items.map((i) => `- ${i.title}${i.url ? ` (${i.url})` : ""}`).join("\n");
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
+  const resp = await client.messages.create({
+    model,
+    max_tokens: 1300,
+    system:
+      "You distill the last couple of days of ag-news headlines for the Iowa Soybean Association team. DISTILL, do not relist: group the news into 2–4 themes, a sentence or two each on what's developing and why it matters to Iowa soybeans, and link out to the 1–2 most important sources per theme as markdown links. Skip noise and duplicates. Plain, tight, no preamble — start at the first theme heading.",
+    messages: [{ role: "user", content: `Recent ag-news headlines:\n\n${list}` }],
+  });
+  store.recordUsage(model, "news_digest", resp.usage.input_tokens, resp.usage.output_tokens);
+  const markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
+  store.setState("news_digest", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: items.length }));
+  return { markdown, date, count: items.length };
+}
+
+/** The cached news digest ({ date, markdown, createdAt, count }) or null. */
+export function getCachedNewsDigest() {
+  try {
+    const v = store.getState("news_digest");
+    return v ? JSON.parse(v) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function runAudit() {

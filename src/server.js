@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import * as store from "./store.js";
-import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist } from "./pipeline.js";
+import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest } from "./pipeline.js";
 import { computeSignals } from "./signals.js";
 import { upcomingReports } from "./calendar.js";
 import { adapters, sourceIdsForClass } from "./adapters/index.js";
@@ -627,10 +627,20 @@ function feedRows(cls, emptyMsg) {
     .join("");
 }
 
-function newsBody() {
+function newsBody(notice) {
+  const cached = getCachedNewsDigest();
+  const digestBlock = cached
+    ? `<div class="answer news-digest">${markdownToHtml(cached.markdown)}
+        <div class="muted" style="margin-top:8px;font-size:.85em">Distilled from ${cached.count} items · ${esc(cached.date)} · <form method="post" action="/news/digest" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div>`
+    : `<form method="post" action="/news/digest"><button class="ghost">🧠 Generate today's digest</button></form>
+       <p class="muted" style="font-size:.85em">One cheap Haiku call over the last two days of news.</p>`;
   return `<h1>📰 News</h1>
-    <p class="muted">Newsletters &amp; press from the collector inbox — deliberately kept out of the regulatory
-    <a href="/items">Items</a> feed. A daily AI “News of the Day” digest will land at the top here.</p>
+    ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
+    <h2 style="margin-bottom:2px">🧠 News of the day</h2>
+    <p class="muted" style="margin-top:0">A distillation of the collector inbox + press RSS — themes and why they matter, not a relist.</p>
+    ${digestBlock}
+    <hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:20px 0">
+    <h2>What's flowing in</h2>
     ${feedRows("news", "No news items yet — they appear once the pipeline runs with the collector (email_intake) enabled on the Pi.")}`;
 }
 
@@ -1081,7 +1091,19 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
 
       if (req.method === "GET" && url.pathname === "/news") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("The Bean Brief · news", newsBody()));
+        res.end(page("The Bean Brief · news", newsBody(url.searchParams.get("notice"))));
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/news/digest") {
+        let notice;
+        try {
+          const d = await generateNewsDigest(process.env);
+          notice = d ? `News digest updated (${d.count} items distilled).` : "No news items in the last two days to digest yet.";
+        } catch (err) {
+          notice = `Digest failed: ${err.message}`;
+        }
+        redirect(res, `/news?notice=${encodeURIComponent(notice)}`);
         return;
       }
 

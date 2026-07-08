@@ -104,6 +104,15 @@ program
   });
 
 program
+  .command("news-digest")
+  .description("Generate the News-of-the-day digest from the last two days of news items")
+  .action(async () => {
+    const { generateNewsDigest } = await import("./pipeline.js");
+    const d = await generateNewsDigest(process.env);
+    console.log(d ? `🧠 News digest updated (${d.count} items).` : "   (no news items in the last two days)");
+  });
+
+program
   .command("alerts-check")
   .description("Detect material market changes since last check → the 'what changed' feed")
   .action(async () => {
