@@ -79,6 +79,7 @@ for (const columnDef of [
   "entity_id TEXT", // resolved registry entity (v2: rss/email-intake items)
   "item_type TEXT", // news|statement|bill_action|vote|event|fundraiser (v2)
   "geo TEXT", // JSON {county, districts} for events/entity items (v2)
+  "body TEXT", // item body/summary text (esp. email bodies) — feeds the deeper News digest
 ]) {
   try {
     db.exec(`ALTER TABLE seen_items ADD COLUMN ${columnDef}`);
@@ -429,16 +430,17 @@ export function setState(k, v) {
 const stmtIsSeen = db.prepare("SELECT 1 FROM seen_items WHERE uid = ?");
 const stmtMarkSeen = db.prepare(`
   INSERT INTO seen_items (uid, source_id, first_seen_at, triage_verdict, triage_topics, title, url, jurisdiction, one_line,
-                          comment_deadline, doc_type, published_at, entity_id, item_type, geo)
+                          comment_deadline, doc_type, published_at, entity_id, item_type, geo, body)
   VALUES (@uid, @sourceId, @firstSeenAt, @verdict, @topics, @title, @url, @jurisdiction, @oneLine,
-          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo)
+          @commentDeadline, @docType, @publishedAt, @entityId, @itemType, @geo, @body)
   ON CONFLICT(uid) DO UPDATE SET
     triage_verdict = excluded.triage_verdict,
     triage_topics  = excluded.triage_topics,
     one_line       = excluded.one_line,
     entity_id      = COALESCE(excluded.entity_id, seen_items.entity_id),
     item_type      = COALESCE(excluded.item_type, seen_items.item_type),
-    geo            = COALESCE(excluded.geo, seen_items.geo)
+    geo            = COALESCE(excluded.geo, seen_items.geo),
+    body           = COALESCE(excluded.body, seen_items.body)
 `);
 const stmtGetSince = db.prepare("SELECT last_success_at FROM runs WHERE source_id = ?");
 const stmtSetLastSuccess = db.prepare(`
@@ -471,6 +473,7 @@ export function markSeen(item, verdict = null) {
     entityId: item.raw?.entityId ?? null,
     itemType: verdict?.type ?? item.raw?.itemType ?? null,
     geo: item.raw?.geo ? JSON.stringify(item.raw.geo) : null,
+    body: item.summary ? String(item.summary).slice(0, 4000) : null,
   });
 }
 
@@ -652,7 +655,7 @@ export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = nul
   return db
     .prepare(
       `SELECT uid, source_id, title, url, jurisdiction, doc_type, triage_verdict, triage_topics,
-              one_line, comment_deadline, published_at, first_seen_at, feedback, entity_id, item_type, geo
+              one_line, comment_deadline, published_at, first_seen_at, feedback, entity_id, item_type, geo, body
          FROM seen_items WHERE ${clauses.join(" AND ")}
         ORDER BY first_seen_at DESC LIMIT ?`
     )

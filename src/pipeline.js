@@ -18,6 +18,7 @@ import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
 import { signalsText } from "./signals.js";
 import { upcomingReportsText } from "./calendar.js";
+import { fetchDocumentText } from "./summarize.js";
 
 /** The live watchlist file: the data-volume copy in Docker/Umbrel, else the project one. */
 export function watchlistFilePath() {
@@ -705,21 +706,43 @@ export async function generateNewsDigest(env = process.env) {
   if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
   const items = store.listItems({ days: 2, sourceIds: sourceIdsForClass("news"), limit: 70 });
   if (!items.length) return null;
-  const list = items.map((i) => `- ${i.title}${i.url ? ` (${i.url})` : ""}`).join("\n");
+
+  // Go beyond headlines: use the stored body (email bodies) where we have it, and for the rest
+  // fetch the linked article's readable text (capped, in parallel) so the digest distills real
+  // content, not just titles.
+  const MAX_FETCH = 14;
+  const needFetch = items.filter((it) => !(it.body || "").trim() && it.url).slice(0, MAX_FETCH);
+  const fetched = new Map();
+  await Promise.allSettled(
+    needFetch.map(async (it) => {
+      try {
+        const { text } = await fetchDocumentText(it.url);
+        if (text) fetched.set(it.uid, text);
+      } catch {
+        /* a failed fetch just falls back to the headline */
+      }
+    })
+  );
+  const enriched = items.map((it, i) => {
+    const content = ((it.body || "").trim() || fetched.get(it.uid) || "").replace(/\s+/g, " ").slice(0, 1200);
+    return `[${i + 1}] ${it.title}${it.url ? ` (${it.url})` : ""}${content ? `\n    ${content}` : ""}`;
+  });
+  const withContent = items.filter((it) => (it.body || "").trim() || fetched.has(it.uid)).length;
+
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const model = env.TRIAGE_MODEL || "claude-haiku-4-5";
   const resp = await client.messages.create({
     model,
-    max_tokens: 1300,
+    max_tokens: 1600,
     system:
-      "You distill the last couple of days of ag-news headlines for the Iowa Soybean Association team. DISTILL, do not relist: group the news into 2–4 themes, a sentence or two each on what's developing and why it matters to Iowa soybeans, and link out to the 1–2 most important sources per theme as markdown links. Skip noise and duplicates. Plain, tight, no preamble — start at the first theme heading.",
-    messages: [{ role: "user", content: `Recent ag-news headlines:\n\n${list}` }],
+      "You distill the last couple of days of ag news for the Iowa Soybean Association team. Each item below gives a headline and — where available — the email body or the article's actual text; read the CONTENT, not just the headline. DISTILL, do not relist: group into 2–4 themes, a couple of sentences each on what's actually developing and why it matters to Iowa soybeans (draw on the specifics in the content), and link out to the 1–2 most important sources per theme as markdown links. Skip noise, ads, and duplicates. Plain, tight, no preamble — start at the first theme heading.",
+    messages: [{ role: "user", content: `Recent ag news (headline + content where available):\n\n${enriched.join("\n\n")}` }],
   });
   store.recordUsage(model, "news_digest", resp.usage.input_tokens, resp.usage.output_tokens);
   const markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
-  store.setState("news_digest", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: items.length }));
-  return { markdown, date, count: items.length };
+  store.setState("news_digest", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), count: items.length, withContent }));
+  return { markdown, date, count: items.length, withContent };
 }
 
 /** The cached news digest ({ date, markdown, createdAt, count }) or null. */

@@ -13,8 +13,8 @@ import * as store from "./store.js";
 const MAX_DOC_CHARS = 18000; // keep token cost bounded for long rules
 const FETCH_TIMEOUT_MS = 15000;
 
-/** Best-effort fetch + readable-text extraction for a document URL. */
-async function fetchDocumentText(url) {
+/** Best-effort fetch + readable-text extraction for a document/article URL. */
+export async function fetchDocumentText(url) {
   if (!url) return { text: "", note: "no link was available" };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
