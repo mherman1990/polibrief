@@ -1,29 +1,24 @@
 # Changelog
 
-## 1.8.0 — Signals, four audience reports, live charts, alerts
+## 1.9.0 — Signals, four reports, the trigger card engine, macro data & more
 
 ### Added
-- **Market signals board** — a bull/bear read at a glance atop the Markets tab, scored from the
-  stored data (crop condition, drought, export pace, fund positioning, crush demand, soy-oil
-  feedstock share, Brazil supply, seasonal). Informational, not a recommendation.
-- **Two new reports** on the shared engine:
-  - **Analyst Note** (🔭) — a forward-looking, connective, second-order read for the demand &
-    policy team: a thesis, what the signals say, and each "around the corner" point framed as
-    setup → implication → risk → the data that would confirm or kill it.
-  - **Market Pulse** (⚡) — a short, time-sensitive, decision-support read for farmer-members:
-    which way the wind's blowing, what changed, what a marketer is weighing (never the call
-    itself), and what's coming up.
-- **Interactive chart date ranges** — one control drives every chart; **defaults to the last six
-  months** (with 1Y / 2Y / All + custom from/to).
-- **Release-calendar awareness** — a "Coming up" panel of imminent USDA/market reports (WASDE,
-  export sales, crop progress, CFTC, grain stocks, acreage), also fed to the Analyst/Pulse writers.
-- **"What changed" alerts** — event-driven detection (signal flips, tilt shifts, multi-year
-  extremes, big moves) → a feed on the homepage; optional email digest.
-- **Freshness monitor** — flags any market series whose latest point is overdue vs. its cadence,
-  so a dead feed stops looking like a quiet market (Markets panel + `data-health` CLI).
-- **News daily digest** — a Haiku distillation at the top of the News tab: themes and why they
-  matter, with links, instead of a raw list.
-- **New data:** corn price + the soybean:corn ratio, and a CFTC managed-money positioning series.
+- **Marketing trigger card engine** — evaluates seasonal, positioning, and report-timing triggers
+  and writes farmer **market-education cards** ("what's happening / what history shows / review your
+  plan") on the homepage. Strictly education, never advice — a hard banned-phrasing filter, the
+  standard footer, and the RP-HPO framing are built in.
+- **FRED macro** — U.S. broad dollar index + 10-year Treasury yield, with a dollar signal (a strong
+  dollar caps export competitiveness). **Brazil production trend** (IBGE PAM, the multi-decade rise).
+- **Deeper News digest** — now reads email bodies and fetches the linked article's text, distilling
+  from real content, not just headlines.
+- **Set-aside archive** for the Laws/Rules/Decisions feed (recoverable), an **optional note** on 👎
+  that teaches the AI triage, and the **Settings panel moved onto the Logs page**.
+- The report calendar now uses the authoritative 2026 USDA dates with impact levels.
+
+### Also in this release (from the 1.8.0 work)
+- **Market signals board**, **Analyst Note** + **Market Pulse** reports, **interactive chart date
+  ranges** (6-month default), **release-calendar awareness**, a **"what changed" alert feed**, a
+  **freshness monitor**, and corn price + the soybean:corn ratio + CFTC positioning series.
 
 ## 1.7.0 — Trend-aware answers · market-education brief · more market data
 
