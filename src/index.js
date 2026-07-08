@@ -113,6 +113,15 @@ program
   });
 
 program
+  .command("market-cards")
+  .description("Generate the farmer market-education cards from the active condition triggers")
+  .action(async () => {
+    const { generateMarketCards } = await import("./pipeline.js");
+    const c = await generateMarketCards(process.env);
+    console.log(c ? `🌱 Market cards updated (${c.triggers.length} triggers${c.flags.length ? `, ${c.flags.length} compliance flags` : ""}).` : "   (no active triggers or reports today)");
+  });
+
+program
   .command("alerts-check")
   .description("Detect material market changes since last check → the 'what changed' feed")
   .action(async () => {

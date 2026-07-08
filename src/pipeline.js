@@ -17,8 +17,10 @@ import { adapters, classOf, sourceIdsForClass } from "./adapters/index.js";
 import { syncRegistryFromSeed } from "./registry.js";
 import { EDUCATION_SYSTEM_PROMPT, seedCurriculum } from "./curriculum.js";
 import { signalsText } from "./signals.js";
-import { upcomingReportsText } from "./calendar.js";
+import { upcomingReportsText, upcomingReports } from "./calendar.js";
 import { fetchDocumentText } from "./summarize.js";
+import { evaluateTriggers, triggersText } from "./triggers.js";
+import { scanBanned, COMPLIANCE_RULES, EDUCATION_FOOTER } from "./compliance.js";
 
 /** The live watchlist file: the data-volume copy in Docker/Umbrel, else the project one. */
 export function watchlistFilePath() {
@@ -222,6 +224,11 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
       await generateNewsDigest(env);
     } catch (err) {
       console.log(`⚠️  News digest skipped: ${err.message}`);
+    }
+    try {
+      await generateMarketCards(env);
+    } catch (err) {
+      console.log(`⚠️  Market cards skipped: ${err.message}`);
     }
   }
 
@@ -651,10 +658,12 @@ export async function generateMemo(presetId, env) {
   if (preset.injectSignals) {
     const sig = signalsText();
     const cal = upcomingReportsText(14);
+    const trig = triggersText();
     signalsBlock =
       `\n\n=== MARKET SIGNAL BOARD (bull/bear read for soybean price) ===\n${sig || "(no signals computed yet)"}` +
-      `\n\n=== UPCOMING REPORT RELEASES ===\n${cal || "(none in the next two weeks)"}`;
-    console.log(`   📊 signal board + release calendar injected`);
+      `\n\n=== UPCOMING REPORT RELEASES ===\n${cal || "(none in the next two weeks)"}` +
+      `\n\n=== ACTIVE MARKETING TRIGGERS (seasonal / report / positioning states) ===\n${trig || "(none active today)"}`;
+    console.log(`   📊 signal board + release calendar + triggers injected`);
   }
 
   const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
@@ -749,6 +758,53 @@ export async function generateNewsDigest(env = process.env) {
 export function getCachedNewsDigest() {
   try {
     const v = store.getState("news_digest");
+    return v ? JSON.parse(v) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Market-education cards — the farmer-facing output of the condition-trigger engine. Evaluates
+ * the active triggers + imminent reports, then one Sonnet call writes compliance-framed education
+ * cards (teach, never advise; the banned-phrasing filter + standard footer are applied here).
+ * Cached in kv_state. @returns {{ markdown, date, triggers, flags } | null}
+ */
+export async function generateMarketCards(env = process.env) {
+  if (!env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com");
+  const now = new Date();
+  const fired = evaluateTriggers(now);
+  const cal = upcomingReports(7, now);
+  if (!fired.length && !cal.length) return null;
+
+  const marketBlock = formatMarketSnapshot(store.marketSnapshot());
+  const system =
+    `You write BeanBrief's farmer market-EDUCATION cards for Iowa soybean growers. Turn the ACTIVE triggers below into 1–3 short education cards; the headline card is the one with the lowest priority number (or the nearest high-impact report). Honor the card TYPE listed for each trigger (what's happening / what history shows / review your plan). For a "what history shows" card, always state the sample and the caveat.\n\n${COMPLIANCE_RULES}\n\nFormat: markdown. Begin each card with "### " and a short bold-worthy title, then 2–4 plain sentences grounded in the provided data. Do NOT write your own disclaimer/footer — one standard education footer is appended in code. No preamble.`;
+  const user =
+    `Today: ${now.toISOString().slice(0, 10)}.\n\n` +
+    `ACTIVE TRIGGERS (ranked; lowest priority number = headline):\n${triggersText(now) || "(none)"}\n\n` +
+    `IMMINENT REPORTS (next 7 days):\n${cal.slice(0, 4).map((r) => `- ${r.date} [impact ${r.impact}] ${r.name}: ${r.note}`).join("\n") || "(none)"}\n\n` +
+    `MARKET DATA (for grounding any figure you cite — never invent numbers):\n${marketBlock || "(none)"}`;
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
+  const resp = await client.messages.create({ model, max_tokens: 1500, system, messages: [{ role: "user", content: user }] });
+  store.recordUsage(model, "cards", resp.usage.input_tokens, resp.usage.output_tokens);
+  let markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";
+
+  const flags = scanBanned(markdown); // defense-in-depth compliance check on the output
+  if (flags.length) console.log(`⚠️  Market cards compliance flags (${flags.length}): ${flags.join(" · ")}`);
+  markdown += `\n\n---\n\n_${EDUCATION_FOOTER}_`;
+
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(now);
+  store.setState("market_cards", JSON.stringify({ date, markdown, createdAt: new Date().toISOString(), triggers: fired.map((f) => f.id), flags }));
+  return { markdown, date, triggers: fired.map((f) => f.id), flags };
+}
+
+/** The cached market-education cards ({ date, markdown, triggers, flags }) or null. */
+export function getCachedMarketCards() {
+  try {
+    const v = store.getState("market_cards");
     return v ? JSON.parse(v) : null;
   } catch {
     return null;

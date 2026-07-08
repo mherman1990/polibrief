@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import * as store from "./store.js";
-import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest } from "./pipeline.js";
+import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist, generateNewsDigest, getCachedNewsDigest, generateMarketCards, getCachedMarketCards } from "./pipeline.js";
 import { computeSignals } from "./signals.js";
 import { upcomingReports } from "./calendar.js";
 import { adapters, sourceIdsForClass } from "./adapters/index.js";
@@ -464,6 +464,20 @@ function whatChangedSection() {
   return `<details class="topic" open><summary>🔔 What changed <span class="muted">(${alerts.length})</span></summary><ul class="whatchanged">${items}</ul></details>`;
 }
 
+// Market-education cards — the farmer-facing output of the condition-trigger engine (compliance-
+// framed: teach, never advise). Cached; generated on each run + on demand.
+function marketCardsSection() {
+  const cached = getCachedMarketCards();
+  if (cached && cached.markdown) {
+    return `<details class="topic" open><summary>🌱 Market education${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""}</summary>
+      <div class="answer market-cards">${markdownToHtml(cached.markdown)}
+        <div class="muted" style="margin-top:6px;font-size:.82em">${esc(cached.date)} · <form method="post" action="/market-cards" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div></details>`;
+  }
+  return `<details class="topic"><summary>🌱 Market education</summary>
+    <p class="muted" style="font-size:.9em">Farmer-facing education cards from the seasonal / report / positioning triggers — teach, never advise.</p>
+    <form method="post" action="/market-cards"><button class="ghost">Generate today's cards</button></form></details>`;
+}
+
 function homeBody(notice, openId = null, search = null) {
   const briefs = store.listBriefs(60);
   const items = briefs
@@ -508,6 +522,7 @@ ${lastRunProblem ? `<div class="banner err">❌ ${esc(lastRunProblem.message)} <
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${searchSection}
 ${whatChangedSection()}
+${marketCardsSection()}
 <p>
   <form method="post" action="/run"><input type="hidden" name="edition" value="am"><button>▶ Run AM brief now</button></form>
   <form method="post" action="/run"><input type="hidden" name="edition" value="pm"><button>▶ Run PM brief now</button></form>
@@ -1117,6 +1132,18 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       if (req.method === "GET" && url.pathname === "/news") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(page("The Bean Brief · news", newsBody(url.searchParams.get("notice"))));
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/market-cards") {
+        let notice;
+        try {
+          const c = await generateMarketCards(process.env);
+          notice = c ? `Market cards updated (${c.triggers.length} active trigger${c.triggers.length === 1 ? "" : "s"}).` : "No active triggers or imminent reports today.";
+        } catch (err) {
+          notice = `Card generation failed: ${err.message}`;
+        }
+        redirect(res, `/?notice=${encodeURIComponent(notice)}`);
         return;
       }
 
