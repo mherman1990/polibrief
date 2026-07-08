@@ -168,6 +168,15 @@ function page(title, body) {
   pre.logs { background: #f3f6f9; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
     font-size: .8rem; overflow-x: auto; white-space: pre-wrap; color: var(--ink); }
   .fb { opacity: .55; } .fb.on { opacity: 1; }
+  .chart-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 16px;
+    padding: 8px 12px; background: var(--isa-blue-40); border-radius: 8px; font-size: .85em; }
+  .chart-range .rlabel { font-weight: 600; color: var(--isa-dark); margin-right: 2px; }
+  .chart-range button { background: #fff; color: var(--isa-dark); border: 1px solid var(--isa-dark-40);
+    border-radius: 6px; padding: 3px 12px; font-size: .9em; font-weight: 600; }
+  .chart-range button:hover { background: var(--isa-gold-40); }
+  .chart-range button.on { background: var(--isa-blue); color: #fff; border-color: var(--isa-blue); }
+  .chart-range .rcustom { margin-left: auto; color: var(--isa-dark); opacity: .85; display: inline-flex; align-items: center; gap: 5px; }
+  .chart-range input[type=date] { padding: 2px 6px; font-size: .92em; }
   .bbchart-box { margin: 8px 0 6px; min-height: 60px; }
   .u-legend { font-size: .82em; margin-top: 6px; }
   .u-legend .u-marker { width: 10px; height: 10px; }
@@ -615,7 +624,19 @@ function marketsBody() {
   const chartAssets = charts
     ? `<link rel="stylesheet" href="/assets/uPlot.min.css?v=${ASSET_VER}"><script src="/assets/uPlot.iife.min.js?v=${ASSET_VER}"></script><script src="/assets/bbcharts.js?v=${ASSET_VER}"></script>`
     : "";
+  // One range control drives every chart; defaults to the last 6 months (set in bbcharts.js).
+  const rangeBar = charts
+    ? `<div class="chart-range" id="bbrange">
+        <span class="rlabel">Show</span>
+        <button data-months="6" type="button">6M</button>
+        <button data-months="12" type="button">1Y</button>
+        <button data-months="24" type="button">2Y</button>
+        <button data-months="all" type="button">All</button>
+        <span class="rcustom">custom <input type="date" name="from" aria-label="from date"> → <input type="date" name="to" aria-label="to date"></span>
+      </div>`
+    : "";
   return `<h1>📈 Markets &amp; Demand</h1>
+    ${rangeBar}
     ${charts || '<p class="muted">Charts populate after a run (or <code>market-refresh</code>) once the USDA/EIA keys are set.</p>'}
     <h2 style="margin-top:22px">Latest data points</h2>
     ${feedRows("markets", "No markets data yet — set the USDA/EIA API keys and the demand adapters populate this tab.")}
