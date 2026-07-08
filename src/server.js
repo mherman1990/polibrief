@@ -21,6 +21,7 @@ import path from "node:path";
 
 import * as store from "./store.js";
 import { runPipeline, runMemo, answerQuery, loadWatchlist, saveWatchlist } from "./pipeline.js";
+import { computeSignals } from "./signals.js";
 import { adapters, sourceIdsForClass } from "./adapters/index.js";
 import { postToTeams } from "./deliver.js";
 import { summarizeItem, summaryExpiry } from "./summarize.js";
@@ -168,6 +169,20 @@ function page(title, body) {
   pre.logs { background: #f3f6f9; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
     font-size: .8rem; overflow-x: auto; white-space: pre-wrap; color: var(--ink); }
   .fb { opacity: .55; } .fb.on { opacity: 1; }
+  .signals { margin: 6px 0 22px; }
+  .sig-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .tilt { font-weight: 700; font-size: .82em; padding: 3px 12px; border-radius: 999px; text-transform: capitalize; }
+  .tilt-bullish { background: #e6f1ea; color: #2f7d4e; } .tilt-bearish { background: #f7e2da; color: #b8481f; } .tilt-mixed { background: var(--isa-blue-40); color: var(--isa-dark); }
+  .sig-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .sig { border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; padding: 10px 12px; background: #fff; }
+  .sig-top { display: flex; align-items: center; justify-content: space-between; }
+  .sig-name { font-weight: 700; color: var(--isa-dark); font-size: .92em; }
+  .sig-dir { font-size: 1.05em; font-weight: 700; }
+  .sig-label { font-size: .82em; font-weight: 600; opacity: .8; margin: 1px 0 5px; }
+  .sig-detail { font-size: .78em; line-height: 1.4; color: var(--ink); opacity: .78; }
+  .sig-bullish { border-left-color: #3f9d5e; } .sig-bullish .sig-dir { color: #2f7d4e; }
+  .sig-bearish { border-left-color: #cf6a45; } .sig-bearish .sig-dir { color: #b8481f; }
+  .sig-neutral { border-left-color: var(--isa-dark-40); } .sig-neutral .sig-dir { color: var(--muted); }
   .chart-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 16px;
     padding: 8px 12px; background: var(--isa-blue-40); border-radius: 8px; font-size: .85em; }
   .chart-range .rlabel { font-weight: 600; color: var(--isa-dark); margin-right: 2px; }
@@ -607,6 +622,36 @@ function chartSection(category, title, desc, height = 300) {
     <script class="bbchart" type="application/json" data-target="${id}">${spec}</script>`;
 }
 
+// The signals board — a bull/bear read at a glance, above the charts (the summary before
+// the detail). Powered by src/signals.js over the stored market data.
+function signalsBoard() {
+  let board;
+  try {
+    board = computeSignals();
+  } catch {
+    return "";
+  }
+  if (!board.signals.length) return "";
+  const arrow = { bullish: "▲", bearish: "▼", neutral: "•" };
+  const cards = board.signals
+    .map(
+      (s) => `<div class="sig sig-${s.direction}">
+        <div class="sig-top"><span class="sig-name">${esc(s.name)}</span><span class="sig-dir">${arrow[s.direction]}</span></div>
+        <div class="sig-label">${esc(s.label)}</div>
+        <div class="sig-detail">${esc(s.detail)}</div>
+      </div>`
+    )
+    .join("");
+  return `<section class="signals">
+    <div class="sig-head">
+      <h2 style="margin:0">Market signals</h2>
+      <span class="tilt tilt-${board.tilt}">Price tilt: ${board.tilt} · ${board.bullish}▲ / ${board.bearish}▼ / ${board.neutral}•</span>
+    </div>
+    <p class="muted" style="margin:.2em 0 12px">A bull/bear read across the stored data — bullish = supportive of soybean price. Informational, not a recommendation.</p>
+    <div class="sig-grid">${cards}</div>
+  </section>`;
+}
+
 function marketsBody() {
   const charts = [
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
@@ -619,6 +664,7 @@ function marketsBody() {
     chartSection("drought", "Iowa drought coverage", "Share of Iowa land area in drought (D1+) and abnormally dry or worse (D0+), from the weekly U.S. Drought Monitor — a fast read on Corn Belt crop stress.", 260),
     chartSection("soy_exports", "Soybean exports (weekly)", "Weekly export activity in metric tons — inspections (actual loadings) vs. net sales (forward bookings). An export-pace / China-demand read; net sales also stands in for the (currently offline) FAS report.", 280),
     chartSection("barge_freight", "Mississippi barge freight", "Cost to move grain down the Mississippi ($/ton) — a driver of the Gulf export basis, and so of what Iowa elevators can bid.", 240),
+    chartSection("positioning", "Fund positioning (CFTC)", "CBOT soybean managed-money net position — how the funds are leaning. Extremes can unwind fast.", 240),
   ].filter(Boolean).join('<hr style="border:none;border-top:1px solid var(--isa-blue-40);margin:18px 0">');
   // Load uPlot + our renderer only on this page, after the chart blobs are in the DOM.
   const chartAssets = charts
@@ -636,6 +682,7 @@ function marketsBody() {
       </div>`
     : "";
   return `<h1>📈 Markets &amp; Demand</h1>
+    ${signalsBoard()}
     ${rangeBar}
     ${charts || '<p class="muted">Charts populate after a run (or <code>market-refresh</code>) once the USDA/EIA keys are set.</p>'}
     <h2 style="margin-top:22px">Latest data points</h2>

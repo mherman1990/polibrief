@@ -55,3 +55,23 @@ export async function fetchItems({ env = process.env } = {}) {
     },
   ];
 }
+
+/** Managed-money net position history (for the Markets chart + the fund-positioning signal). */
+export async function fetchSeries() {
+  const where = encodeURIComponent(`market_and_exchange_names='${MARKET}'`);
+  const order = encodeURIComponent("report_date_as_yyyy_mm_dd DESC"); // most-recent 520 weeks
+  let rows;
+  try {
+    rows = await fetchJSON(`${RESOURCE}?$where=${where}&$order=${order}&$limit=520`);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(rows) || !rows.length) return [];
+  const points = rows
+    .map((r) => ({
+      period: String(r.report_date_as_yyyy_mm_dd).slice(0, 10),
+      value: Number(r.m_money_positions_long_all) - Number(r.m_money_positions_short_all),
+    }))
+    .filter((p) => p.period && Number.isFinite(p.value));
+  return points.length ? [{ series: "cftc:soybeans:mm-net", meta: { label: "Managed money net position", unit: "contracts", category: "positioning" }, points }] : [];
+}

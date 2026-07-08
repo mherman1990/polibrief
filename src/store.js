@@ -199,10 +199,10 @@ export function listSeriesMeta(category = null) {
     : db.prepare("SELECT * FROM market_series_meta ORDER BY category, label").all();
 }
 
-/** "YYYY-MM" or "YYYY-MM-DD" → epoch ms (UTC), or null. */
+/** "YYYY", "YYYY-MM", or "YYYY-MM-DD" → epoch ms (UTC), or null. */
 function periodToMs(p) {
   const m = String(p).split("-");
-  if (m.length < 2) return null;
+  if (!/^\d{4}$/.test(m[0])) return null;
   const t = Date.UTC(+m[0], (+m[1] || 1) - 1, +m[2] || 1);
   return Number.isNaN(t) ? null : t;
 }
