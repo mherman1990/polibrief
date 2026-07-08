@@ -16,12 +16,13 @@ const SYSTEM_PROMPT = `You are triaging government documents and political items
 function feedbackGuidance() {
   const examples = store.getFeedbackExamples(8);
   if (examples.length === 0) return "";
-  const lines = examples.map((e) =>
-    e.feedback === "down"
-      ? `- "${e.title}" — you called this relevant, but the analyst marked it NOT relevant. Avoid similar items.`
-      : `- "${e.title}" — you called this irrelevant, but the analyst marked it RELEVANT. Include similar items.`
-  );
-  return `\n\nThe analyst has corrected some of your past verdicts. Apply this judgment:\n${lines.join("\n")}`;
+  const lines = examples.map((e) => {
+    const note = e.feedback_note ? ` The analyst's note: "${e.feedback_note}".` : "";
+    if (e.feedback === "down") return `- "${e.title}" — the analyst marked this NOT relevant (or to weigh down).${note} Avoid similar items.`;
+    if (e.feedback === "up") return `- "${e.title}" — the analyst marked this RELEVANT.${note} Include similar items.`;
+    return `- "${e.title}" — analyst guidance:${note || " (noted)"}`;
+  });
+  return `\n\nThe analyst has corrected some of your past verdicts and left guidance. Apply this judgment:\n${lines.join("\n")}`;
 }
 
 /** Strip markdown fences and parse a JSON array, or return null. */

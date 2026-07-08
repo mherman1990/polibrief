@@ -210,7 +210,7 @@ function page(title, body) {
 </style></head>
 <body><header>
 <a class="brand" href="/"><img class="logo" src="/assets/isa-logo-main.png" alt="Iowa Soybean Association"><span class="brandname">The Bean Brief</span></a>
-<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs</a></nav>
+<nav><a href="/">Home</a><a href="/items">Laws, Rules &amp; Decisions</a><a href="/news">News</a><a href="/markets">Markets</a><a href="/watchlist">Watchlist</a><a href="/sources">Sources</a><a href="/registry">Registry</a><a href="/logs">Logs &amp; Settings</a></nav>
 </header>
 <script>(function(){var p=location.pathname;document.querySelectorAll('nav a').forEach(function(a){var h=a.getAttribute('href');if(h==='/'?p==='/':p===h||p.indexOf(h+'/')===0)a.classList.add('active');});})();</script>
 ${body}
@@ -484,10 +484,11 @@ function homeBody(notice, openId = null, search = null) {
     })
     .join("\n");
 
+  // Settings moved to the Logs & Settings page; the homepage keeps upcoming comment deadlines.
+  void openId;
   let configSections;
   try {
-    const watchlist = loadWatchlist();
-    configSections = deadlinesSection() + settingsSection(watchlist, openId);
+    configSections = deadlinesSection();
   } catch (err) {
     configSections = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
   }
@@ -791,8 +792,11 @@ function itemsBody(params, notice) {
     days: Number(params.get("days") ?? 30) || 30,
   };
   // Items tab = the clean regulatory/legal flow only. News (collector/press) and Markets
-  // (demand data) live on their own tabs so they don't dilute this feed.
-  const rows = store.listItems({ ...filters, sourceIds: sourceIdsForClass("official"), limit: 200 });
+  // (demand data) live on their own tabs so they don't dilute this feed. Archived (set-aside)
+  // items drop out of the main list into a recoverable archive view.
+  const viewingArchive = params.get("archived") === "1";
+  const rows = store.listItems({ ...filters, sourceIds: sourceIdsForClass("official"), limit: 200, archived: viewingArchive ? 1 : 0 });
+  const nArchived = store.archivedCount();
   const trackedKeys = new Set(store.listTracked().map((t) => t.uid));
   const back = `/items?${params.toString()}`;
 
@@ -828,14 +832,18 @@ function itemsBody(params, notice) {
       </details>`;
       // Buttons are AJAX (class "act") — they update in place so the page never scrolls back to the top.
       const trackBtn = `<button type="button" class="ghost tiny act${isTracked ? " on" : ""}" data-act="track" data-uid="${esc(r.uid)}" data-on="${isTracked ? "false" : "true"}" title="${isTracked ? "Stop tracking" : "Track: flag future movement in briefs"}">${isTracked ? "📌 tracked" : "📌 track"}</button>`;
-      const fb = (val, emoji) => `<button type="button" class="ghost tiny fb act${r.feedback === val ? " on" : ""}" data-act="feedback" data-uid="${esc(r.uid)}" data-fb="${r.feedback === val ? "" : val}" data-val="${val}" title="${val === "up" ? "Good catch — more like this" : "Not relevant — fewer like this"}">${emoji}</button>`;
-      return `<tr>
+      const fb = (val, emoji) => `<button type="button" class="ghost tiny fb act${r.feedback === val ? " on" : ""}" data-act="feedback" data-uid="${esc(r.uid)}" data-fb="${r.feedback === val ? "" : val}" data-val="${val}" title="${val === "up" ? "Good catch — more like this" : "Not relevant — fewer like this (adds an optional note for the AI)"}">${emoji}</button>`;
+      const archiveBtn = viewingArchive
+        ? `<button type="button" class="ghost tiny act" data-act="archive" data-uid="${esc(r.uid)}" data-on="false" title="Restore to the main list">♻ restore</button>`
+        : `<button type="button" class="ghost tiny act" data-act="archive" data-uid="${esc(r.uid)}" data-on="true" title="Set aside — move to the archive (recoverable)">🗄 set aside</button>`;
+      return `<tr data-row="${esc(r.uid)}">
         <td><a href="${esc(r.url ?? "#")}" target="_blank" rel="noopener">${esc((r.title ?? r.uid).slice(0, 110))}</a>
           ${r.one_line ? `<br><span class="muted">${esc(r.one_line)}</span>` : ""}
+          ${r.feedback_note ? `<br><span class="muted">📝 ${esc(r.feedback_note)}</span>` : ""}
           ${summaryPanel}</td>
         <td class="muted">${esc(r.jurisdiction ?? "")}<br>${esc((r.published_at ?? r.first_seen_at ?? "").slice(0, 10))}</td>
         <td class="muted">${esc(r.triage_verdict ?? "")}</td>
-        <td><div class="toolbar" style="margin:0">${trackBtn}${fb("up", "👍")}${fb("down", "👎")}</div></td>
+        <td><div class="toolbar" style="margin:0">${trackBtn}${fb("up", "👍")}${fb("down", "👎")}${archiveBtn}</div></td>
       </tr>`;
     })
     .join("\n");
@@ -843,7 +851,12 @@ function itemsBody(params, notice) {
   return `
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${trackedBlock}
-<h2>Laws, Rules &amp; Decisions</h2>
+<h2>Laws, Rules &amp; Decisions${viewingArchive ? " · 🗄 Archive" : ""}</h2>
+${viewingArchive
+  ? '<p><a href="/items">← back to the main list</a></p>'
+  : nArchived
+    ? `<p class="muted"><a href="/items?archived=1">🗄 View archive (${nArchived} set aside)</a></p>`
+    : ""}
 <form method="get" action="/items" class="toolbar">
   <input type="text" name="q" placeholder="search title / summary…" value="${esc(filters.q)}">
   <select name="topic"><option value="">any topic</option>${topicOptions}</select>
@@ -885,9 +898,14 @@ document.querySelectorAll('details.summary').forEach(function(d){
 document.querySelectorAll('button.act').forEach(function(b){
   b.addEventListener('click', function(){
     var act=b.dataset.act;
-    var body= act==='feedback'
-      ? 'uid='+encodeURIComponent(b.dataset.uid)+'&fb='+encodeURIComponent(b.dataset.fb)
-      : 'uid='+encodeURIComponent(b.dataset.uid)+'&on='+encodeURIComponent(b.dataset.on);
+    var body;
+    if(act==='feedback'){
+      var note='';
+      if(b.dataset.fb==='down'){ note=window.prompt('Optional note for the AI — why is this not relevant, or how should it weigh this?')||''; }
+      body='uid='+encodeURIComponent(b.dataset.uid)+'&fb='+encodeURIComponent(b.dataset.fb)+'&note='+encodeURIComponent(note);
+    } else {
+      body='uid='+encodeURIComponent(b.dataset.uid)+'&on='+encodeURIComponent(b.dataset.on);
+    }
     b.disabled=true;
     fetch('/items/'+act,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','x-requested-with':'fetch'},body:body})
       .then(function(r){return r.json();}).then(function(j){
@@ -898,6 +916,8 @@ document.querySelectorAll('button.act').forEach(function(b){
             var on=(j.feedback===x.dataset.val);
             x.classList.toggle('on',on); x.dataset.fb= on?'':x.dataset.val;
           });
+        } else if(act==='archive'){
+          var tr=b.closest('tr'); if(tr){ tr.style.transition='opacity .25s'; tr.style.opacity=.3; setTimeout(function(){tr.remove();},250); }
         } else {
           b.classList.toggle('on',j.tracked);
           b.dataset.on= j.tracked?'false':'true';
@@ -1140,9 +1160,17 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       }
 
       if (req.method === "GET" && url.pathname === "/logs") {
-        const body = `<h2>Recent activity</h2><pre class="logs">${esc(logBuffer.slice(-300).join("\n") || "(nothing yet)")}</pre>`;
+        let settings;
+        try {
+          settings = settingsSection(loadWatchlist(), url.searchParams.get("open"));
+        } catch (err) {
+          settings = `<div class="banner err">⚠️ ${esc(err.message)}</div>`;
+        }
+        const body = `<h1>🛠 Logs &amp; Settings</h1>
+          <h2>Recent activity</h2><pre class="logs">${esc(logBuffer.slice(-300).join("\n") || "(nothing yet)")}</pre>
+          ${settings}`;
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("The Bean Brief · logs", body));
+        res.end(page("The Bean Brief · logs & settings", body));
         return;
       }
 
@@ -1306,7 +1334,9 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         const form = await readForm(req);
         const fb = form.get("fb");
         const newState = fb === "up" || fb === "down" ? fb : null;
-        store.setFeedback(form.get("uid") ?? "", newState);
+        const rawNote = form.get("note");
+        const note = rawNote ? rawNote.slice(0, 500) : undefined; // only set when non-empty
+        store.setFeedback(form.get("uid") ?? "", newState, note);
         if (req.headers["x-requested-with"] === "fetch") {
           res.writeHead(200, { "content-type": "application/json" });
           res.end(JSON.stringify({ ok: true, feedback: newState }));
@@ -1315,6 +1345,19 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         const notice = fb ? (fb === "up" ? "👍 Noted — more like this." : "👎 Noted — the AI will be told to avoid similar items.") : "Feedback cleared.";
         const back = form.get("back") || "/items";
         redirect(res, `${back}${back.includes("?") ? "&" : "?"}notice=${encodeURIComponent(notice)}`);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/items/archive") {
+        const form = await readForm(req);
+        store.archiveItem(form.get("uid") ?? "", form.get("on") === "true");
+        if (req.headers["x-requested-with"] === "fetch") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, archived: form.get("on") === "true" }));
+          return;
+        }
+        const back = form.get("back") || "/items";
+        redirect(res, `${back}${back.includes("?") ? "&" : "?"}notice=${encodeURIComponent(form.get("on") === "true" ? "Set aside." : "Restored.")}`);
         return;
       }
 
@@ -1327,7 +1370,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         } catch (err) {
           notice = `⚠️ Teams test failed: ${err.message}`;
         }
-        redirect(res, `/?notice=${encodeURIComponent(notice)}&open=settings#t-settings`);
+        redirect(res, `/logs?notice=${encodeURIComponent(notice)}&open=settings#t-settings`);
         return;
       }
 
@@ -1482,7 +1525,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         } catch (err) {
           notice = `⚠️ ${err.message}`;
         }
-        redirect(res, `/?notice=${encodeURIComponent(notice)}&open=settings#t-settings`);
+        redirect(res, `/logs?notice=${encodeURIComponent(notice)}&open=settings#t-settings`);
         return;
       }
 

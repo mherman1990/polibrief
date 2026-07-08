@@ -80,6 +80,8 @@ for (const columnDef of [
   "item_type TEXT", // news|statement|bill_action|vote|event|fundraiser (v2)
   "geo TEXT", // JSON {county, districts} for events/entity items (v2)
   "body TEXT", // item body/summary text (esp. email bodies) — feeds the deeper News digest
+  "feedback_note TEXT", // free-text note on 👍/👎, fed into the triage prompt as guidance
+  "archived INTEGER DEFAULT 0", // set-aside items — out of the main LRD list, recoverable
 ]) {
   try {
     db.exec(`ALTER TABLE seen_items ADD COLUMN ${columnDef}`);
@@ -628,9 +630,13 @@ export function summarizedUids() {
  * Filterable listing of stored items for the /items page.
  * filters: { q, topicId, sourceId, verdict, days, limit }
  */
-export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = null, verdict = "", days = 30, limit = 200 } = {}) {
+export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = null, verdict = "", days = 30, limit = 200, archived = null } = {}) {
   const clauses = ["first_seen_at >= ?"];
   const params = [new Date(Date.now() - days * 86400e3).toISOString()];
+  if (archived !== null) {
+    clauses.push("COALESCE(archived, 0) = ?");
+    params.push(archived ? 1 : 0);
+  }
   if (q) {
     clauses.push("(title LIKE ? COLLATE NOCASE OR one_line LIKE ? COLLATE NOCASE)");
     params.push(`%${q}%`, `%${q}%`);
@@ -655,25 +661,38 @@ export function listItems({ q = "", topicId = "", sourceId = "", sourceIds = nul
   return db
     .prepare(
       `SELECT uid, source_id, title, url, jurisdiction, doc_type, triage_verdict, triage_topics,
-              one_line, comment_deadline, published_at, first_seen_at, feedback, entity_id, item_type, geo, body
+              one_line, comment_deadline, published_at, first_seen_at, feedback, feedback_note, entity_id, item_type, geo, body
          FROM seen_items WHERE ${clauses.join(" AND ")}
         ORDER BY first_seen_at DESC LIMIT ?`
     )
     .all(...params, Math.min(limit, 500));
 }
 
-export function setFeedback(uid, feedback) {
-  // feedback: 'up' | 'down' | null (clear)
-  db.prepare("UPDATE seen_items SET feedback = ? WHERE uid = ?").run(feedback, uid);
+export function setFeedback(uid, feedback, note) {
+  // feedback: 'up' | 'down' | null (clear). note: optional free-text (undefined = leave as-is).
+  if (note === undefined) {
+    db.prepare("UPDATE seen_items SET feedback = ? WHERE uid = ?").run(feedback, uid);
+  } else {
+    db.prepare("UPDATE seen_items SET feedback = ?, feedback_note = ? WHERE uid = ?").run(feedback, note || null, uid);
+  }
 }
 
-/** Recent human corrections for the triage prompt: items where the human disagreed with Haiku. */
+/** Set-aside / restore an item (archived items drop out of the main LRD list, recoverable). */
+export function archiveItem(uid, on = true) {
+  db.prepare("UPDATE seen_items SET archived = ? WHERE uid = ?").run(on ? 1 : 0, uid);
+}
+export function archivedCount() {
+  return db.prepare("SELECT COUNT(*) AS n FROM seen_items WHERE COALESCE(archived, 0) = 1").get().n;
+}
+
+/** Recent human corrections for the triage prompt: items where the human disagreed with Haiku,
+ *  including any free-text note they left. */
 export function getFeedbackExamples(limit = 8) {
   return db
     .prepare(
-      `SELECT title, triage_verdict, feedback FROM seen_items
+      `SELECT title, triage_verdict, feedback, feedback_note FROM seen_items
         WHERE feedback IS NOT NULL
-          AND ((feedback = 'down' AND triage_verdict = 'relevant') OR (feedback = 'up' AND triage_verdict = 'irrelevant'))
+          AND ((feedback = 'down' AND triage_verdict = 'relevant') OR (feedback = 'up' AND triage_verdict = 'irrelevant') OR feedback_note IS NOT NULL)
         ORDER BY first_seen_at DESC LIMIT ?`
     )
     .all(limit);
