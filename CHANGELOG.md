@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.10.0 — One daily brief, market education on the Markets tab, smarter report models
+
+### Changed
+- **The twice-daily AM/PM policy briefs are now a single "Run policy brief now"** on the homepage,
+  and a quiet scan no longer saves a blank "no news" brief. The twice-daily run still refreshes
+  Markets, News, alerts, and education cards on schedule — it just stays silent on days with no
+  policy movement instead of cluttering Saved briefs. Each report button now carries a one-line
+  description of what it does.
+- **Farmer market-education cards moved from the homepage to the Markets tab** (renamed "For
+  farmers: what to watch"), sitting alongside the market data they interpret. The homepage now leads
+  with the Ask box and the reports.
+
+### Models
+- **The Analyst Note now runs on Claude Opus 4.8 with adaptive thinking** — the deep, forward-looking
+  report gets the strongest reasoning model for its "around the corner" analysis. Override with
+  `ANALYST_MODEL` in `.env`.
+- **The base model moves to Claude Sonnet 5** (`BRIEF_MODEL`) — a better model at the same price for
+  the daily brief, the weekly/monthly/farmer/education memos, Market Pulse, the education cards, and
+  the Ask box.
+
 ## 1.9.0 — Signals, four reports, the trigger card engine, macro data & more
 
 ### Added

@@ -69,7 +69,7 @@ Hard rules:
 
 export async function generateBrief({ relevantItems, watchlist, edition, env, stats, audience = "internal" }) {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
+  const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const statesTracked = (watchlist.sources?.legiscan?.states ?? []).join(", ") || "state";
   const maxItems = watchlist.output?.maxItemsInBrief ?? 25;
 

@@ -469,11 +469,11 @@ function whatChangedSection() {
 function marketCardsSection() {
   const cached = getCachedMarketCards();
   if (cached && cached.markdown) {
-    return `<details class="topic" open><summary>🌱 Market education${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""}</summary>
+    return `<details class="topic" open><summary>🌱 For farmers: what to watch${cached.triggers?.length ? ` <span class="muted">(${cached.triggers.length} active)</span>` : ""}</summary>
       <div class="answer market-cards">${markdownToHtml(cached.markdown)}
         <div class="muted" style="margin-top:6px;font-size:.82em">${esc(cached.date)} · <form method="post" action="/market-cards" style="display:inline"><button class="ghost tiny">↻ Refresh</button></form></div></div></details>`;
   }
-  return `<details class="topic"><summary>🌱 Market education</summary>
+  return `<details class="topic"><summary>🌱 For farmers: what to watch</summary>
     <p class="muted" style="font-size:.9em">Farmer-facing education cards from the seasonal / report / positioning triggers — teach, never advise.</p>
     <form method="post" action="/market-cards"><button class="ghost">Generate today's cards</button></form></details>`;
 }
@@ -522,18 +522,47 @@ ${lastRunProblem ? `<div class="banner err">❌ ${esc(lastRunProblem.message)} <
 ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
 ${searchSection}
 ${whatChangedSection()}
-${marketCardsSection()}
-<p>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="am"><button>▶ Run AM brief now</button></form>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="pm"><button>▶ Run PM brief now</button></form>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="weekly"><button class="ghost">📚 Weekly memo</button></form>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="monthly"><button class="ghost">🗓️ Monthly review</button></form>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="analyst"><button class="ghost">🔭 Analyst Note</button></form>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="pulse"><button class="ghost">⚡ Market Pulse</button></form>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="farmer"><button class="ghost">🌾 Farmer update</button></form>
-  <form method="post" action="/run"><input type="hidden" name="edition" value="education"><button class="ghost">🎓 Market-education brief</button></form>
-  ${runInProgress ? '<span class="muted"> a run is in progress…</span>' : ""}
-</p>
+<style>
+  .reports form{margin:0}
+  .reports .report{display:flex;flex-direction:column;gap:3px}
+  .reports .rdesc{font-size:.8em;line-height:1.35}
+  .reports .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 22px;margin-top:12px}
+  @media(max-width:640px){.reports .grid{grid-template-columns:1fr}}
+</style>
+<div class="reports">
+  <div class="report">
+    <form method="post" action="/run"><input type="hidden" name="edition" value="auto"><button>▶ Run policy brief now</button></form>
+    <span class="muted rdesc">Scans the 7 government sources, flags what's relevant to Iowa soy, and writes it up. Also the twice-daily refresh that keeps Markets, News &amp; alerts current — it now stays quiet on days with no policy movement instead of saving a blank brief.</span>
+  </div>
+  <p class="muted" style="margin:16px 0 0;font-weight:600">On-demand reports</p>
+  <div class="grid">
+    <div class="report">
+      <form method="post" action="/run"><input type="hidden" name="edition" value="weekly"><button class="ghost">📚 Weekly memo</button></form>
+      <span class="muted rdesc">The past 7 days of policy + markets for colleagues and board who didn't follow the daily flow.</span>
+    </div>
+    <div class="report">
+      <form method="post" action="/run"><input type="hidden" name="edition" value="monthly"><button class="ghost">🗓️ Monthly review</button></form>
+      <span class="muted rdesc">A 30-day, higher-altitude "month in review" — trends and direction of travel, for leadership.</span>
+    </div>
+    <div class="report">
+      <form method="post" action="/run"><input type="hidden" name="edition" value="analyst"><button class="ghost">🔭 Analyst Note</button></form>
+      <span class="muted rdesc">Internal deep dive: connects policy to the market mechanism and looks around the corner, naming the reports that would confirm or kill each read.</span>
+    </div>
+    <div class="report">
+      <form method="post" action="/run"><input type="hidden" name="edition" value="pulse"><button class="ghost">⚡ Market Pulse</button></form>
+      <span class="muted rdesc">Short farmer read on what's moving now and what a marketer is weighing — education, never a buy/sell call.</span>
+    </div>
+    <div class="report">
+      <form method="post" action="/run"><input type="hidden" name="edition" value="farmer"><button class="ghost">🌾 Farmer update</button></form>
+      <span class="muted rdesc">Plain, nonpartisan update for members: what your beans are worth, the policy to know, dates to watch.</span>
+    </div>
+    <div class="report">
+      <form method="post" action="/run"><input type="hidden" name="edition" value="education"><button class="ghost">🎓 Market-education brief</button></form>
+      <span class="muted rdesc">The daily "teach, don't tell" lesson — one real data point, one market concept, so farmers learn to read the market themselves.</span>
+    </div>
+  </div>
+  ${runInProgress ? '<p class="muted" style="margin-top:10px">a run is in progress…</p>' : ""}
+</div>
 <h2>Saved briefs <span class="muted" style="font-weight:400;font-size:.7em">(<a href="/feed.xml">RSS</a>)</span></h2>
 ${briefs.length ? `<ul class="briefs">${items}</ul>` : "<p class='muted'>No briefs yet. Click a Run button above, or wait for the next scheduled edition.</p>"}
 ${configSections}
@@ -749,7 +778,7 @@ function dataHealth() {
   </details>`;
 }
 
-function marketsBody() {
+function marketsBody(notice) {
   const charts = [
     chartSection("biofuel_feedstock", "Biofuel feedstock demand", "Lipid feedstocks used in U.S. biodiesel + renewable diesel — soybean oil vs. the competition (corn oil, canola, used cooking oil, tallow…). Hover for the value + month.", 320),
     chartSection("soy_price", "Soybean price received", "Monthly average price ($/bu) — Iowa vs. U.S.", 260),
@@ -782,8 +811,10 @@ function marketsBody() {
       </div>`
     : "";
   return `<h1>📈 Markets &amp; Demand</h1>
+    ${notice ? `<div class="banner">${esc(notice)}</div>` : ""}
     ${signalsBoard()}
     ${reportCalendar()}
+    ${marketCardsSection()}
     ${rangeBar}
     ${charts || '<p class="muted">Charts populate after a run (or <code>market-refresh</code>) once the USDA/EIA keys are set.</p>'}
     <h2 style="margin-top:22px">Latest data points</h2>
@@ -1143,7 +1174,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
         } catch (err) {
           notice = `Card generation failed: ${err.message}`;
         }
-        redirect(res, `/?notice=${encodeURIComponent(notice)}`);
+        redirect(res, `/markets?notice=${encodeURIComponent(notice)}`);
         return;
       }
 
@@ -1161,7 +1192,7 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
 
       if (req.method === "GET" && url.pathname === "/markets") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-        res.end(page("The Bean Brief · markets", marketsBody()));
+        res.end(page("The Bean Brief · markets", marketsBody(url.searchParams.get("notice"))));
         return;
       }
 
@@ -1297,7 +1328,16 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
       // ----- actions -----
       if (req.method === "POST" && url.pathname === "/run") {
         const form = await readForm(req);
-        const edition = ["am", "pm", "weekly", "monthly", "farmer", "education", "analyst", "pulse"].includes(form.get("edition")) ? form.get("edition") : "am";
+        let edition = ["am", "pm", "auto", "weekly", "monthly", "farmer", "education", "analyst", "pulse"].includes(form.get("edition")) ? form.get("edition") : "auto";
+        // The single "Run policy brief now" button posts edition="auto"; resolve it to the
+        // am or pm slot by time of day so a manual run lines up with (and doesn't clobber)
+        // the scheduled editions. The scheduler still fires am + pm on their own times.
+        if (edition === "auto") {
+          let tz = "America/Chicago";
+          try { tz = loadWatchlist().briefEditions?.timezone ?? tz; } catch { /* default tz */ }
+          const hh = Number(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", hour12: false }).format(new Date()));
+          edition = hh >= 12 ? "pm" : "am";
+        }
         triggerRun(edition).then((problem) => {
           if (problem) console.log(`⚠️  ${problem}`);
         });

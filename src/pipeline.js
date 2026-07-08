@@ -255,6 +255,7 @@ const PRICES = {
   "claude-haiku-4-5": { input: 1.0, output: 5.0 },
   "claude-sonnet-4-6": { input: 3.0, output: 15.0 },
   "claude-sonnet-5": { input: 3.0, output: 15.0 },
+  "claude-opus-4-8": { input: 5.0, output: 25.0 },
 };
 
 export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount }) {
@@ -286,17 +287,21 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
     if (!keptUids.has(item.uid)) store.markSeen(item, null);
   }
 
-  // 4. Sonnet brief.
+  // 4. Sonnet brief — only when there's something to report. On a quiet scan we
+  // skip the brief entirely: no file, no clutter in Saved briefs. The run still did
+  // its real work above (collect + refresh markets/news/alerts/cards + triage), so
+  // this stays the twice-daily heartbeat — it just no longer emits blank briefs.
   const stats = {
     fetchedCount,
     sourceCount: Object.keys(adapters).filter((s) => watchlist.sources?.[s]?.enabled).length,
     skippedSources,
   };
-  if (relevant.length > 0) {
-    console.log(`\n📝 Generating brief (${env.BRIEF_MODEL || "claude-sonnet-4-6"})…`);
-  } else {
-    console.log("\n📝 Nothing relevant today — writing a short no-news brief (no Sonnet call needed)");
+  if (relevant.length === 0) {
+    console.log("\n📝 Nothing relevant this scan — no policy brief saved (quiet day). Markets/news/alerts refresh still ran.");
+    console.log(`\n✅ ${edition.toUpperCase()} refresh complete — no brief today.\n`);
+    return;
   }
+  console.log(`\n📝 Generating brief (${env.BRIEF_MODEL || "claude-sonnet-5"})…`);
   const markdown = await generateBrief({ relevantItems: relevant, watchlist, edition, env, stats });
 
   // 5. Deliver.
@@ -420,7 +425,7 @@ export async function answerQuery(question, env) {
   }
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
+  const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const response = await client.messages.create({
     model,
     max_tokens: 2000,
@@ -546,7 +551,15 @@ Length: scannable in ~90 seconds (250–400 words). No preamble, no sign-off. St
     label: "Analyst Note",
     edition: "analyst",
     scopeDays: 14,
-    maxTokens: 3600,
+    // The deep "around the corner" report runs on Opus 4.8 + adaptive thinking.
+    // Thinking counts against max_tokens on Opus, so the ceiling sits well above
+    // the ~2–3k-token note itself to leave room (still non-streaming-safe at 12k).
+    // effort "high" is the recommended default. Override the model via ANALYST_MODEL.
+    maxTokens: 12000,
+    model: "claude-opus-4-8",
+    modelEnv: "ANALYST_MODEL",
+    thinking: { type: "adaptive" },
+    effort: "high",
     injectSignals: true,
     system: (dateLabel) => `You are the senior market-and-policy analyst for the Iowa Soybean Association's demand & policy team — an INTERNAL audience (sharp, no hand-holding, wants to see around the corner). Write a forward-looking ANALYST NOTE using ONLY the stored data provided (the market signal board, full-history trend stats, laws/rules/decisions + news, the release calendar, tracked items, recent briefs).
 
@@ -666,11 +679,16 @@ export async function generateMemo(presetId, env) {
     console.log(`   📊 signal board + release calendar + triggers injected`);
   }
 
-  const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
-  console.log(`\n📝 ${preset.label}: ${official.length + news.length} items + ${marketBlock ? "market data" : "no market data"} over the last ${preset.scopeDays}d (${model})…`);
+  // Per-report model: the Analyst Note runs on the deep-reasoning model (Opus +
+  // adaptive thinking) — its whole job is second-order, "around the corner"
+  // analysis. Every other report rides the base BRIEF_MODEL (Sonnet 5). Both are
+  // overridable from .env (ANALYST_MODEL / BRIEF_MODEL) with no code change.
+  const model = (preset.modelEnv && env[preset.modelEnv]) || preset.model || env.BRIEF_MODEL || "claude-sonnet-5";
+  const thinkNote = preset.thinking ? ` + ${preset.thinking.type} thinking${preset.effort ? `/${preset.effort}` : ""}` : "";
+  console.log(`\n📝 ${preset.label}: ${official.length + news.length} items + ${marketBlock ? "market data" : "no market data"} over the last ${preset.scopeDays}d (${model}${thinkNote})…`);
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const response = await client.messages.create({
+  const request = {
     model,
     max_tokens: preset.maxTokens,
     system: preset.system(dateLabel),
@@ -688,7 +706,14 @@ export async function generateMemo(presetId, env) {
           signalsBlock,
       },
     ],
-  });
+  };
+  // Deep-reasoning presets (Analyst) turn on adaptive thinking + an effort level.
+  // On Opus, thinking counts against max_tokens — the preset sets a larger
+  // maxTokens so the note isn't truncated. Adaptive thinking only; Opus 4.8
+  // rejects the old budget_tokens knob.
+  if (preset.thinking) request.thinking = preset.thinking;
+  if (preset.effort) request.output_config = { effort: preset.effort };
+  const response = await client.messages.create(request);
   store.recordUsage(model, "memo", response.usage.input_tokens, response.usage.output_tokens);
   const markdown = response.content.find((b) => b.type === "text")?.text?.trim() ?? "";
   const filePath = saveBrief(markdown, preset.edition, timezone);
@@ -787,7 +812,7 @@ export async function generateMarketCards(env = process.env) {
     `MARKET DATA (for grounding any figure you cite — never invent numbers):\n${marketBlock || "(none)"}`;
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const model = env.BRIEF_MODEL || "claude-sonnet-4-6";
+  const model = env.BRIEF_MODEL || "claude-sonnet-5";
   const resp = await client.messages.create({ model, max_tokens: 1500, system, messages: [{ role: "user", content: user }] });
   store.recordUsage(model, "cards", resp.usage.input_tokens, resp.usage.output_tokens);
   let markdown = resp.content.find((b) => b.type === "text")?.text?.trim() ?? "";

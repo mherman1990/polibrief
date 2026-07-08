@@ -59,7 +59,7 @@ export async function summarizeItem(item, env) {
   const { text, note } = await fetchDocumentText(item.url);
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  const model = env.SUMMARY_MODEL || env.BRIEF_MODEL || "claude-sonnet-4-6";
+  const model = env.SUMMARY_MODEL || env.BRIEF_MODEL || "claude-sonnet-5";
 
   const meta = [
     `Title: ${item.title ?? "(untitled)"}`,
