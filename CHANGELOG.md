@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.8.0 — Signals, four audience reports, live charts, alerts
+
+### Added
+- **Market signals board** — a bull/bear read at a glance atop the Markets tab, scored from the
+  stored data (crop condition, drought, export pace, fund positioning, crush demand, soy-oil
+  feedstock share, Brazil supply, seasonal). Informational, not a recommendation.
+- **Two new reports** on the shared engine:
+  - **Analyst Note** (🔭) — a forward-looking, connective, second-order read for the demand &
+    policy team: a thesis, what the signals say, and each "around the corner" point framed as
+    setup → implication → risk → the data that would confirm or kill it.
+  - **Market Pulse** (⚡) — a short, time-sensitive, decision-support read for farmer-members:
+    which way the wind's blowing, what changed, what a marketer is weighing (never the call
+    itself), and what's coming up.
+- **Interactive chart date ranges** — one control drives every chart; **defaults to the last six
+  months** (with 1Y / 2Y / All + custom from/to).
+- **Release-calendar awareness** — a "Coming up" panel of imminent USDA/market reports (WASDE,
+  export sales, crop progress, CFTC, grain stocks, acreage), also fed to the Analyst/Pulse writers.
+- **"What changed" alerts** — event-driven detection (signal flips, tilt shifts, multi-year
+  extremes, big moves) → a feed on the homepage; optional email digest.
+- **Freshness monitor** — flags any market series whose latest point is overdue vs. its cadence,
+  so a dead feed stops looking like a quiet market (Markets panel + `data-health` CLI).
+- **News daily digest** — a Haiku distillation at the top of the News tab: themes and why they
+  matter, with links, instead of a raw list.
+- **New data:** corn price + the soybean:corn ratio, and a CFTC managed-money positioning series.
+
 ## 1.7.0 — Trend-aware answers · market-education brief · more market data
 
 ### Added
