@@ -1736,11 +1736,20 @@ export async function startServer({ port = 8484, schedule = true } = {}) {
           const watchlist = loadWatchlist();
           watchlist.briefEditions ??= {};
           const hhmm = /^\d{2}:\d{2}$/;
-          if (hhmm.test(form.get("am") ?? "")) watchlist.briefEditions.am = form.get("am");
-          if (hhmm.test(form.get("pm") ?? "")) watchlist.briefEditions.pm = form.get("pm");
+          // A well-formed but impossible time ("25:00") would save fine and then never fire —
+          // the scheduler compares clock strings — so reject it instead of persisting it.
+          const validTime = (v) => {
+            if (!hhmm.test(v)) return false;
+            if (Number(v.slice(0, 2)) > 23 || Number(v.slice(3)) > 59) {
+              throw new Error(`"${v}" isn't a real clock time — use HH:MM between 00:00 and 23:59`);
+            }
+            return true;
+          };
+          if (validTime(form.get("am") ?? "")) watchlist.briefEditions.am = form.get("am");
+          if (validTime(form.get("pm") ?? "")) watchlist.briefEditions.pm = form.get("pm");
           const day = form.get("weeklyDay");
           if (day === "off") delete watchlist.briefEditions.weekly;
-          else if (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day) && hhmm.test(form.get("weeklyTime") ?? "")) {
+          else if (["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(day) && validTime(form.get("weeklyTime") ?? "")) {
             watchlist.briefEditions.weekly = `${day} ${form.get("weeklyTime")}`;
           }
           watchlist.output ??= {};
