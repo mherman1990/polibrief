@@ -1824,52 +1824,70 @@ function startScheduler() {
   }
 
   const check = async () => {
-    let watchlist;
+    // One guard for the whole tick: setInterval never sees the async rejection, so any
+    // throw below (an invalid briefEditions timezone, a non-string weekly, …) would
+    // otherwise kill the entire server as an unhandled rejection.
     try {
-      watchlist = loadWatchlist();
-    } catch {
-      return; // bad watchlist edits shouldn't crash the server; run/CLI will report it
-    }
-    const editions = watchlist.briefEditions ?? {};
-    const timezone = editions.timezone ?? "America/Chicago";
-    const now = new Date();
-    const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
-    const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
-    const weekday = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(now); // "Fri"
-
-    for (const edition of ["am", "pm"]) {
-      const key = `${dateLabel}-${edition}`;
-      if (editions[edition] && hhmm >= editions[edition] && !ran.has(key)) {
-        ran.add(key);
-        console.log(`\n⏰ Scheduled ${edition.toUpperCase()} edition (${editions[edition]} ${timezone})`);
-        const problem = await triggerRun(edition);
-        if (problem) console.log(`⚠️  ${problem}`);
-      }
-    }
-
-    // Weekly memo, e.g. "Fri 17:00".
-    const weekly = editions.weekly;
-    if (weekly) {
-      const [day, time] = weekly.split(/\s+/);
-      const key = `${dateLabel}-weekly`;
-      if (day === weekday && time && hhmm >= time && !ran.has(key)) {
-        ran.add(key);
-        console.log(`\n⏰ Scheduled weekly memo (${weekly} ${timezone})`);
-        const problem = await triggerRun("weekly");
-        if (problem) console.log(`⚠️  ${problem}`);
-      }
-    }
-
-    // Nightly backup at 03:15 local.
-    const backupKey = `${dateLabel}-backup`;
-    if (hhmm >= "03:15" && !ran.has(backupKey)) {
-      ran.add(backupKey);
+      let watchlist;
       try {
-        const dir = await store.backupNow();
-        console.log(`💾 Nightly backup saved to ${dir} (newest 14 kept)`);
-      } catch (err) {
-        console.log(`⚠️  Backup failed: ${err.message}`);
+        watchlist = loadWatchlist();
+      } catch {
+        return; // bad watchlist edits shouldn't crash the server; run/CLI will report it
       }
+      const editions = watchlist.briefEditions ?? {};
+      const timezone = editions.timezone ?? "America/Chicago";
+      const now = new Date();
+      const dateLabel = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
+      const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
+      const weekday = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(now); // "Fri"
+
+      for (const edition of ["am", "pm"]) {
+        const key = `${dateLabel}-${edition}`;
+        if (editions[edition] && hhmm >= editions[edition] && !ran.has(key)) {
+          if (runInProgress) {
+            // Defer without consuming the slot — a later tick retries once the run frees.
+            console.log(`⏳ ${edition.toUpperCase()} edition deferred: a run is in progress`);
+            continue;
+          }
+          // No await between the mutex check above and triggerRun below, so nothing can
+          // claim the mutex in between — the run below starts, it can't bounce.
+          ran.add(key);
+          console.log(`\n⏰ Scheduled ${edition.toUpperCase()} edition (${editions[edition]} ${timezone})`);
+          const problem = await triggerRun(edition);
+          if (problem) console.log(`⚠️  ${problem}`);
+        }
+      }
+
+      // Weekly memo, e.g. "Fri 17:00".
+      const weekly = editions.weekly;
+      if (weekly) {
+        const [day, time] = weekly.split(/\s+/);
+        const key = `${dateLabel}-weekly`;
+        if (day === weekday && time && hhmm >= time && !ran.has(key)) {
+          if (runInProgress) {
+            console.log("⏳ Weekly memo deferred: a run is in progress");
+          } else {
+            ran.add(key);
+            console.log(`\n⏰ Scheduled weekly memo (${weekly} ${timezone})`);
+            const problem = await triggerRun("weekly");
+            if (problem) console.log(`⚠️  ${problem}`);
+          }
+        }
+      }
+
+      // Nightly backup at 03:15 local.
+      const backupKey = `${dateLabel}-backup`;
+      if (hhmm >= "03:15" && !ran.has(backupKey)) {
+        ran.add(backupKey);
+        try {
+          const dir = await store.backupNow();
+          console.log(`💾 Nightly backup saved to ${dir} (newest 14 kept)`);
+        } catch (err) {
+          console.log(`⚠️  Backup failed: ${err.message}`);
+        }
+      }
+    } catch (err) {
+      console.log(`⚠️  Scheduler tick skipped: ${err.message}`);
     }
   };
 
