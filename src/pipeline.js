@@ -87,7 +87,19 @@ export function normalizeWatchlist(w) {
 export function saveWatchlist(watchlist) {
   const { topics, ...persist } = watchlist; // drop the derived engine view before writing
   void topics;
-  fs.writeFileSync(watchlistFilePath(), JSON.stringify(persist, null, 2) + "\n", "utf8");
+  const target = watchlistFilePath();
+  // Write-then-rename: an interrupted write must never truncate the live config (the whole
+  // app fails closed on an unreadable watchlist). The temp lives in the target's directory
+  // so the rename stays on one filesystem (atomic); pid+random keeps concurrent writers
+  // (server + CLI on the same data dir) from colliding on the temp name.
+  const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(persist, null, 2) + "\n", "utf8");
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
 }
 
 export function loadWatchlist() {
