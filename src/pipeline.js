@@ -198,12 +198,13 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     console.log(`⚠️  Registry sync skipped: ${err.message}`);
   }
 
-  // 1. Collect. Dry runs never write state (no last-success advance, no items marked seen).
-  const { items, skippedSources, fetchedCount } = await collectAll({
+  // 1. Collect. Read-only: per-source watermark advances come back as `watermarks` and are
+  // applied at the commit point in runFullPipeline, once this run's items are durably
+  // recorded. Dry runs never get there, so they still never write state.
+  const { items, skippedSources, fetchedCount, watermarks } = await collectAll({
     watchlist,
     env,
     onlySource: source,
-    commit: !dryRun,
   });
 
   // 1b. Split by information class. Only "official" (regulatory/legal) sources feed the
@@ -255,7 +256,7 @@ export async function runPipeline({ edition = "am", dryRun = false, source = nul
     return { dryRun: true, kept, skippedSources };
   }
 
-  return runFullPipeline({ watchlist, env, edition, kept, items: officialItems, skippedSources, fetchedCount });
+  return runFullPipeline({ watchlist, env, edition, kept, items: officialItems, skippedSources, fetchedCount, watermarks });
 }
 
 // Rough list prices per 1M tokens, for the audit cost estimate only.
@@ -267,7 +268,7 @@ const PRICES = {
   "claude-opus-4-8": { input: 5.0, output: 25.0 },
 };
 
-export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount }) {
+export async function runFullPipeline({ watchlist, env, edition, kept, items, skippedSources, fetchedCount, watermarks = [] }) {
   if (!env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set in .env — get one at console.anthropic.com (or use --dry-run to test without it)");
   }
@@ -295,6 +296,13 @@ export async function runFullPipeline({ watchlist, env, edition, kept, items, sk
   for (const item of items) {
     if (!keptUids.has(item.uid)) store.markSeen(item, null);
   }
+
+  // Commit point: every item fetched this run is now durable — side items were stored at
+  // collect time, triage recorded every batch (including twice-failed ones as unscored),
+  // and the loop above covered everything dropped by local scoring. Only now is it safe
+  // to advance the per-source fetch watermarks; a run that dies earlier leaves them
+  // untouched, so the next run re-fetches the window and isSeen dedupes the overlap.
+  for (const w of watermarks) store.setLastSuccess(w.sourceId, w.ts);
 
   // 4. Sonnet brief — only when there's something to report. On a quiet scan we
   // skip the brief entirely: no file, no clutter in Saved briefs. The run still did

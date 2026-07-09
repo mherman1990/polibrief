@@ -11,7 +11,8 @@
     "run:am": "node src/index.js run --edition am",
     "run:pm": "node src/index.js run --edition pm",
     "dry-run": "node src/index.js run --dry-run",
-    "audit": "node src/index.js audit"
+    "audit": "node src/index.js audit",
+    "test": "node --test test/"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",

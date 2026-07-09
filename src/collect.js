@@ -14,13 +14,17 @@ import { channelsForKinds } from "./registry.js";
  * @param {object} opts.watchlist  parsed watchlist.json
  * @param {object} opts.env        process.env
  * @param {string|null} opts.onlySource  restrict to a single source id (testing)
- * @param {boolean} opts.commit    real run: advance last-success timestamps.
- *                                 dry-run: read-only, never changes state.
- * @returns {{ items: Item[], skippedSources: {id, label, reason}[], fetchedCount: number }}
+ * @returns {{ items: Item[], skippedSources: {id, label, reason}[], fetchedCount: number,
+ *             watermarks: {sourceId: string, ts: string}[] }}
+ * collectAll is read-only. `watermarks` are the PENDING per-source last-success advances
+ * (one per source that fetched successfully, ts = when its fetch began); the caller must
+ * apply them only after this run's items are durably recorded — advancing earlier would
+ * consume the fetch window of items that die with the run and lose them forever.
  */
-export async function collectAll({ watchlist, env, onlySource = null, commit = true }) {
+export async function collectAll({ watchlist, env, onlySource = null }) {
   const items = [];
   const skippedSources = [];
+  const watermarks = [];
   let fetchedCount = 0;
 
   for (const [sourceId, adapter] of Object.entries(adapters)) {
@@ -51,7 +55,7 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
         `📥 ${adapter.label}: ${fetched.length} fetched since ${sinceISO.slice(0, 10)}, ${fresh.length} new`
       );
       items.push(...fresh);
-      if (commit) store.setLastSuccess(sourceId, runStartedAt);
+      watermarks.push({ sourceId, ts: runStartedAt });
     } catch (err) {
       console.log(`⚠️  ${adapter.label}: skipped — ${err.message}`);
       skippedSources.push({ id: sourceId, label: adapter.label, reason: err.message });
@@ -63,5 +67,5 @@ export async function collectAll({ watchlist, env, onlySource = null, commit = t
     throw new Error(`Unknown source "${onlySource}". Known sources: ${known}`);
   }
 
-  return { items, skippedSources, fetchedCount };
+  return { items, skippedSources, fetchedCount, watermarks };
 }
